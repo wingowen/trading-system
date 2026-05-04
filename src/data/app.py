@@ -20,6 +20,20 @@ DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexper
 
 app = Flask(__name__)
 app.config["JSON_AS_ASCII"] = False
+app.config["API_KEY"] = os.environ.get("FLASK_API_KEY", "")  # 空 = 不启用鉴权
+
+
+def require_api_key(f):
+    """API Key 鉴权装饰器。启用条件：FLASK_API_KEY 环境变量已设置。"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        expected = app.config.get("API_KEY", "")
+        if expected:  # 只有设置了 key 才校验
+            provided = request.headers.get("X-API-Key", "")
+            if provided != expected:
+                return jsonify({"error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 
 # ─── Field definitions (溯源元数据) ───────────────────────────────────────────
@@ -68,12 +82,14 @@ def row_to_dict(row):
 
 # ─── API Routes ───────────────────────────────────────────────────────────────
 @app.route("/api/field-list")
+@require_api_key
 def api_field_list():
     """返回所有字段的元数据"""
     return jsonify({"fields": FIELD_META})
 
 
 @app.route("/api/dates")
+@require_api_key
 def api_dates():
     """返回有数据的日期列表"""
     conn = get_conn()
@@ -86,6 +102,7 @@ def api_dates():
 
 
 @app.route("/api/records")
+@require_api_key
 def api_records():
     """返回指定日期/时段的字段记录"""
     date = request.args.get("date", datetime.date.today().isoformat())
@@ -130,6 +147,7 @@ def api_records():
 
 
 @app.route("/api/fetch-log")
+@require_api_key
 def api_fetch_log():
     """返回采集日志"""
     date = request.args.get("date", datetime.date.today().isoformat())
@@ -148,6 +166,7 @@ def api_fetch_log():
 
 
 @app.route("/api/fetcher-logs")
+@require_api_key
 def api_fetcher_logs():
     """
     按 fetcher 名分组的日志，用于弹窗展示。
@@ -285,6 +304,7 @@ def _cdp_screenshot_on_browser(url: str) -> bytes:
 
 
 @app.route("/api/cdp-screenshot")
+@require_api_key
 def api_cdp_screenshot():
     """
     对东财 dpzjlx.html tab 截屏并保存到 data/cdp_screenshots/。
@@ -319,6 +339,7 @@ def api_cdp_screenshot():
 
 
 @app.route("/api/collect", methods=["GET"])
+@require_api_key
 def api_collect():
     """触发全量采集（约30秒）"""
     date = request.args.get("date", datetime.date.today().isoformat())

@@ -188,6 +188,8 @@ class DatabaseWriter:
             self.write_field(trade_date, session, "break_board_rate", ZT["break_board_rate"],
                              ZT.get("source", "zhangtingke.com:vip_today_lbtd"))
             ok_count += 1
+        # continue_board_count = 今连板数（昨日首板今继续涨停的股票数量）
+        # zhangtingke 返回字段名为 limit_up_total
         if ZT.get("limit_up_total") is not None:
             self.write_field(trade_date, session, "continue_board_count",
                              ZT["limit_up_total"],

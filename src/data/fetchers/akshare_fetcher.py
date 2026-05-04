@@ -15,16 +15,24 @@ def fetch_index_quotes() -> dict:
             name = str(row.get("名称", ""))
             if code in ("000001", "399001", "399006", "000688"):
                 code_full = f"{code}.{'SH' if code.startswith('0') or code == '000688' else 'SZ'}"
+                # 尝试多个可能的中文列名（akshare 可能变更）
+                c_open   = _df_col(df, "今开", "开盘")
+                c_high   = _df_col(df, "最高")
+                c_low    = _df_col(df, "最低")
+                c_close  = _df_col(df, "收盘", "最新价")
+                c_vol    = _df_col(df, "成交量")
+                c_amount = _df_col(df, "成交额")
+                c_chg    = _df_col(df, "涨跌幅")
                 rows[code_full] = {
                     "index_code": code_full,
                     "index_name": name,
-                    "open": _float(row.get("今开", row.get("开盘", None))),
-                    "high": _float(row.get("最高", None)),
-                    "low": _float(row.get("最低", None)),
-                    "close": _float(row.get("收盘", row.get("最新价", None))),
-                    "volume": _int(row.get("成交量", None)),
-                    "amount": _float(row.get("成交额", None)),
-                    "change_pct": _float(row.get("涨跌幅", None)),
+                    "open": _float(row.get(c_open)),
+                    "high": _float(row.get(c_high)),
+                    "low": _float(row.get(c_low)),
+                    "close": _float(row.get(c_close)),
+                    "volume": _int(row.get(c_vol)),
+                    "amount": _float(row.get(c_amount)),
+                    "change_pct": _float(row.get(c_chg)),
                     "source": "akshare:stock_zh_index_spot_em",
                 }
         return {"indices": rows, "status": "success", "fetched_at": str(datetime.datetime.now())}
@@ -115,3 +123,11 @@ def _int(v) -> Optional[int]:
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+def _df_col(df: pd.DataFrame, *names) -> str:
+    """返回 df 中实际存在的列名（尝试多个备选名）。"""
+    for name in names:
+        if name in df.columns:
+            return name
+    return df.columns[0] if len(df.columns) > 0 else ""

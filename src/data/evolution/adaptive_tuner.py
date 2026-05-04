@@ -107,6 +107,50 @@ class AdaptiveStrategyTuner:
             "auto_apply": auto_apply,
         }
 
+    def persist(self, tune_result: dict, trade_date: str = None) -> dict:
+        """
+        将调参结果写入 SQLite。
+        表: strategy_tuning_log (field_name, old_value, new_value, reason, confidence, trade_date, created_at)
+        """
+        import sqlite3, json
+        from datetime import datetime
+
+        db_path = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
+        trade_date = trade_date or datetime.now().strftime("%Y-%m-%d")
+
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS strategy_tuning_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    field_name  TEXT NOT NULL,
+                    old_value   TEXT,
+                    new_value   TEXT,
+                    reason      TEXT,
+                    confidence  REAL,
+                    trade_date  TEXT,
+                    created_at  TEXT DEFAULT (datetime('now', 'localtime'))
+                )
+            """)
+            for change in tune_result.get("changes", []):
+                conn.execute("""
+                    INSERT INTO strategy_tuning_log
+                        (field_name, old_value, new_value, reason, confidence, trade_date)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    change.get("param"),
+                    change.get("old_value"),
+                    change.get("new_value"),
+                    change.get("reason"),
+                    tune_result.get("confidence"),
+                    trade_date,
+                ))
+            conn.commit()
+            conn.close()
+            return {"status": "success", "count": len(tune_result.get("changes", []))}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     def _calculate_confidence(self, review_result: Dict) -> float:
         """计算置信度"""
         summary = review_result.get("summary", {})

@@ -10,4 +10,5 @@ dependencies = [
     "pytdx>=1.72",
     "tushare>=1.4.29",
     "pandas",
+    "websocket-client>=1.7.0",
 ]

@@ -1,8 +1,10 @@
 """
-StockExpert 数据库读取层 — 溯源 Dashboard 查询
+StockExpert 数据库读取层 — 统一 kv 结构
+所有数据存储在 data_records (kv) 和 fetch_logs两张表。
 """
-import sqlite3, json
-from datetime import date
+import sqlite3
+from datetime import date, datetime
+from typing import Optional, List, Dict, Any
 
 DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
 
@@ -13,188 +15,216 @@ def get_conn():
     return conn
 
 
-def get_fetch_status(trade_date: str, stage: str = None) -> list:
-    """今日各字段采集状态（核心溯源查询）"""
-    conn = get_conn()
-    query = """
-        SELECT
-            field_group,
-            field_name,
-            source,
-            source_detail,
-            status,
-            CASE status
-                WHEN 'success' THEN '✅'
-                WHEN 'failed'  THEN '🔴'
-                WHEN 'partial' THEN '⚠️'
-                ELSE '❓'
-            END AS icon,
-            value,
-            error_message,
-            fetched_at
-        FROM field_fetch_log
-        WHERE trade_date = ?
+# ─── data_records kv 查询 ───────────────────────────────────────────────────
+
+def get_records(
+    trade_date: str,
+    session: str = None,
+    field_name: str = None,
+    category: str = None,
+) -> List[Dict[str, Any]]:
     """
-    params = [trade_date]
-    if stage:
-        query += " AND stage = ?"
-        params.append(stage)
-    query += " ORDER BY field_group, field_name"
+    查询 data_records。
+
+    Args:
+        trade_date: 格式 YYYY-MM-DD
+        session: 可选 "morning" / "noon" / "close"
+        field_name: 可选，精确匹配
+        category: 可选，从 FIELD_META 映射的 category 过滤
+    """
+    conn = get_conn()
+    query = "SELECT * FROM data_records WHERE trade_date = ?"
+    params: list = [trade_date]
+
+    if session:
+        query += " AND session = ?"
+        params.append(session)
+    if field_name:
+        query += " AND field_name = ?"
+        params.append(field_name)
 
     rows = conn.execute(query, params).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    records = [dict(r) for r in rows]
+
+    # category 过滤：需要 FIELD_META 映射
+    if category:
+        META_CAT = {
+            "index_chg_sh000001": "指数", "index_chg_sz399001": "指数",
+            "index_chg_sz399006": "指数", "index_chg_sh000688": "指数",
+            "zt_pool_count": "涨停池", "dt_pool_count": "跌停池",
+            "highest_board": "连板", "break_board_rate": "炸板",
+            "continue_board_count": "连板", "touched_not_sealed": "炸板",
+            "level_1_to_2": "晋级率", "level_2_to_3": "晋级率",
+            "level_3_to_4": "晋级率", "level_4_to_5": "晋级率",
+            "main_net_inflow": "资金流", "super_large_net": "资金流",
+            "large_net": "资金流", "medium_net": "资金流", "small_net": "资金流",
+            "hgt_net_inflow": "北向", "sgt_net_inflow": "北向",
+            "north_net_inflow_latest": "北向历史",
+        }
+        records = [r for r in records if META_CAT.get(r["field_name"]) == category]
+
+    return records
 
 
-def get_coverage(trade_date: str = None) -> list:
-    """字段覆盖率视图"""
+def get_field(trade_date: str, field_name: str, session: str = "morning") -> Optional[Any]:
+    """查询单个字段最新值。"""
     conn = get_conn()
-    query = "SELECT * FROM v_field_coverage"
-    if trade_date:
-        query += " WHERE trade_date = ?"
-        rows = conn.execute(query, [trade_date]).fetchall()
-    else:
-        rows = conn.execute(query).fetchall()
+    row = conn.execute(
+        "SELECT field_value FROM data_records "
+        "WHERE trade_date=? AND session=? AND field_name=?",
+        (trade_date, session, field_name),
+    ).fetchone()
     conn.close()
-    return [dict(r) for r in rows]
+    return row["field_value"] if row else None
 
 
-def get_index_quotes(trade_date: str) -> list:
-    """指数行情"""
+def get_latest_field(field_name: str, limit: int = 5) -> List[Dict[str, Any]]:
+    """查询某字段历史最近 N 条。"""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM index_quotes WHERE trade_date = ? ORDER BY index_code",
-        [trade_date]
+        "SELECT trade_date, session, field_value, status "
+        "FROM data_records WHERE field_name=? "
+        "ORDER BY trade_date DESC, session DESC LIMIT ?",
+        (field_name, limit),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_market_sentiment(trade_date: str) -> dict:
-    """市场情绪"""
+# ─── fetch_logs 查询 ────────────────────────────────────────────────────────
+
+def get_fetch_logs(trade_date: str, session: str = None) -> List[Dict[str, Any]]:
+    """采集日志。"""
     conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM market_sentiment WHERE trade_date = ?", [trade_date]
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_board_metrics(trade_date: str) -> dict:
-    """连板炸板"""
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM board_metrics WHERE trade_date = ?", [trade_date]
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_north_flow(trade_date: str) -> dict:
-    """北向资金"""
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM north_flow WHERE trade_date = ?", [trade_date]
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def get_field_history(field_name: str, limit: int = 30) -> list:
-    """某字段历史采集记录"""
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT trade_date, stage, value, status, source, error_message
-        FROM field_fetch_log
-        WHERE field_name = ?
-        ORDER BY trade_date DESC, fetched_at DESC
-        LIMIT ?
-    """, [field_name, limit]).fetchall()
+    if session:
+        rows = conn.execute(
+            "SELECT * FROM fetch_logs WHERE trade_date=? AND session=? ORDER BY created_at",
+            (trade_date, session),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM fetch_logs WHERE trade_date=? ORDER BY created_at",
+            (trade_date,),
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_all_sources() -> list:
-    """所有数据源统计"""
+def get_fetcher_groups(trade_date: str, session: str = "morning") -> List[Dict[str, Any]]:
+    """按 fetcher 分组的日志（最新一次的状态）。"""
     conn = get_conn()
-    rows = conn.execute("""
-        SELECT field_name, source, source_detail,
-               COUNT(*) AS total,
-               SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS ok,
-               ROUND(1.0*SUM(CASE WHEN status='success' THEN 1 ELSE 0 END)/COUNT(*)*100,1) AS rate
-        FROM field_fetch_log
-        GROUP BY field_name, source, source_detail
-        ORDER BY field_name
-    """).fetchall()
+    rows = conn.execute(
+        "SELECT fetcher, status, duration_ms, records_count, error_message, created_at "
+        "FROM fetch_logs WHERE trade_date=? AND session=? "
+        "ORDER BY fetcher, created_at",
+        (trade_date, session),
+    ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+
+    groups: Dict[str, Dict] = {}
+    for r in rows:
+        d = dict(r)
+        fetcher = d["fetcher"]
+        if fetcher not in groups:
+            groups[fetcher] = {"fetcher": fetcher, "logs": []}
+        groups[fetcher]["logs"].append(d)
+
+    return list(groups.values())
 
 
-def print_dashboard(trade_date: str = None):
-    """打印完整溯源看板"""
+# ─── 覆盖率 ─────────────────────────────────────────────────────────────────
+
+def get_coverage(trade_date: str, session: str = None) -> Dict[str, Any]:
+    """计算 data_records 字段采集覆盖率。"""
+    conn = get_conn()
+    query = (
+        "SELECT status, COUNT(*) as cnt FROM data_records "
+        "WHERE trade_date = ?"
+    )
+    params: list = [trade_date]
+    if session:
+        query += " AND session = ?"
+        params.append(session)
+    query += " GROUP BY status"
+
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    total = sum(r["cnt"] for r in rows)
+    success = next((r["cnt"] for r in rows if r["status"] == "success"), 0)
+    return {
+        "total": total,
+        "success": success,
+        "failed": total - success,
+        "coverage_pct": round(success / total * 100, 1) if total else 0,
+    }
+
+
+# ─── 溯源看板打印 ────────────────────────────────────────────────────────────
+
+FIELD_META = {
+    "index_chg_sh000001":  {"label": "上证指数涨跌幅",  "unit": "%",   "category": "指数"},
+    "index_chg_sz399001":  {"label": "深证成指涨跌幅",  "unit": "%",   "category": "指数"},
+    "index_chg_sz399006":  {"label": "创业板指涨跌幅",  "unit": "%",   "category": "指数"},
+    "index_chg_sh000688":  {"label": "科创50涨跌幅",    "unit": "%",   "category": "指数"},
+    "zt_pool_count":       {"label": "涨停家数",        "unit": "只",   "category": "涨停池"},
+    "dt_pool_count":       {"label": "跌停家数",        "unit": "只",   "category": "跌停池"},
+    "highest_board":       {"label": "最高连板",        "unit": "连板", "category": "连板"},
+    "break_board_rate":    {"label": "今炸板率",        "unit": "%",    "category": "炸板"},
+    "continue_board_count":{"label": "今连板数",        "unit": "只",   "category": "连板"},
+    "touched_not_sealed":  {"label": "触板未封",        "unit": "只",   "category": "炸板"},
+    "level_1_to_2":        {"label": "1进2晋级率",      "unit": "%",   "category": "晋级率"},
+    "level_2_to_3":        {"label": "2进3晋级率",      "unit": "%",   "category": "晋级率"},
+    "level_3_to_4":        {"label": "3进4晋级率",      "unit": "%",   "category": "晋级率"},
+    "level_4_to_5":        {"label": "4进5晋级率",      "unit": "%",   "category": "晋级率"},
+    "main_net_inflow":     {"label": "主力净流入",       "unit": "亿元", "category": "资金流"},
+    "super_large_net":     {"label": "超大单净流入",     "unit": "亿元", "category": "资金流"},
+    "large_net":           {"label": "大单净流入",       "unit": "亿元", "category": "资金流"},
+    "medium_net":          {"label": "中单净流入",       "unit": "亿元", "category": "资金流"},
+    "small_net":           {"label": "小单净流入",       "unit": "亿元", "category": "资金流"},
+    "hgt_net_inflow":      {"label": "沪股通净流入",    "unit": "亿元", "category": "北向"},
+    "sgt_net_inflow":      {"label": "深股通净流入",    "unit": "亿元", "category": "北向"},
+    "north_net_inflow_latest": {"label": "北向历史最新", "unit": "亿元", "category": "北向历史"},
+}
+
+
+def print_dashboard(trade_date: str = None, session: str = "morning"):
+    """打印完整溯源看板。"""
     if trade_date is None:
         trade_date = date.today().isoformat()
 
+    records = get_records(trade_date, session)
+    cov = get_coverage(trade_date, session)
+
     print(f"\n{'='*60}")
-    print(f"📊 StockExpert 溯源看板 — {trade_date}")
+    print(f"📊 StockExpert 溯源看板 — {trade_date}  {session}")
+    print(f"   覆盖率: {cov['coverage_pct']}% ({cov['success']}/{cov['total']})")
     print(f"{'='*60}")
 
-    # 覆盖率
-    cov = get_coverage(trade_date)
-    if cov:
-        for c in cov:
-            icon = "✅" if c["coverage_pct"] == 100 else ("⚠️" if float(c["coverage_pct"] or 0) > 50 else "🔴")
-            print(f"\n{icon} {c['stage']} 覆盖率: {c['coverage_pct']}% ({c['success_cnt']}/{c['total_fields']})")
-            if c["failed_fields"]:
-                print(f"   失败字段: {c['failed_fields']}")
-    else:
-        print("\n⚠️ 今日无采集记录")
+    # 按 category 分组展示
+    by_cat: Dict[str, List] = {}
+    for r in records:
+        meta = FIELD_META.get(r["field_name"], {})
+        cat = meta.get("category", "其他")
+        if cat not in by_cat:
+            by_cat[cat] = []
+        by_cat[cat].append({**r, "meta": meta})
 
-    # 各表数据
-    print("\n--- 指数行情 ---")
-    for idx in get_index_quotes(trade_date):
-        chg = f"{idx['change_pct']:+.2f}%" if idx['change_pct'] else "N/A"
-        print(f"  {idx['index_name']}({idx['index_code']}) "
-              f"收{idx['close']} {chg} | {idx['source']}")
+    for cat, items in by_cat.items():
+        print(f"\n  [{cat}]")
+        for it in items:
+            icon = "✅" if it["status"] == "success" else "⚠️" if it["status"] == "partial" else "🔴"
+            val = it["field_value"]
+            unit = it["meta"].get("unit", "")
+            src = it.get("source", "")
+            err = f" | 🔴{it.get('error_message', '')[:40]}" if it["status"] != "success" else ""
+            print(f"    {icon} {it['meta'].get('label', it['field_name'])}: {val}{unit}  [{src}]{err}")
 
-    ms = get_market_sentiment(trade_date)
-    if ms:
-        print(f"\n--- 市场情绪 ---")
-        print(f"  涨 {ms['up_count']} / 平 {ms['flat_count']} / 跌 {ms['down_count']} "
-              f"(涨停{ms['limit_up_count']} 跌停{ms['limit_down_count']}) | {ms['source_detail']}")
-
-    bm = get_board_metrics(trade_date)
-    if bm:
-        print(f"\n--- 连板炸板 ---")
-        print(f"  最高{bm['highest_board']}连板({bm['highest_board_stock']}) "
-              f"今炸板率{bm['break_board_rate']}% | {bm['source']}")
-
-    nf = get_north_flow(trade_date)
-    if nf:
-        print(f"\n--- 北向资金 ---")
-        print(f"  主力{nf['main_net_inflow']}亿 "
-              f"超大单{nf['super_large_net']}亿 | {nf['source_detail']}")
-
-    # 字段状态详情
-    print(f"\n{'='*60}")
-    print("📋 字段采集状态")
-    print(f"{'='*60}")
-    statuses = get_fetch_status(trade_date)
-    if not statuses:
-        print("  (无记录)")
-    else:
-        current_group = None
-        for s in statuses:
-            if s["field_group"] != current_group:
-                print(f"\n  [{s['field_group']}]")
-                current_group = s["field_group"]
-            err = f" | 🔴{s['error_message']}" if s["status"] == "failed" else ""
-            val = f" = {s['value']}" if s["value"] and len(str(s["value"])) < 30 else ""
-            print(f"    {s['icon']} {s['field_name']}{val} ({s['source']}:{s['source_detail']}){err}")
-
-    # 数据源统计
-    print(f"\n{'='*60}")
-    print("📡 数据源成功率")
-    print(f"{'='*60}")
-    for src in get_all_sources():
-        print(f"  {src['field_name']:25s} {src['source']:15s} {src['source_detail']:40s} {src['ok']:3d}/{src['total']:3d} ({src['rate']}%)")
+    # 采集日志摘要
+    logs = get_fetch_logs(trade_date, session)
+    print(f"\n  [采集日志] {len(logs)} 条")
+    for lg in logs[-5:]:  # 只显示最近5条
+        icon = "✅" if lg["status"] == "success" else "🔴"
+        print(f"    {icon} {lg['fetcher']} {lg.get('duration_ms', 0)}ms {lg.get('records_count', 0)}条")

@@ -37,6 +37,12 @@
   ✅ akshare:fetch_north_hist
   ✅ akshare:fetch_north_flow_summary
   ✅ cdp:fetch_north_flow_cdp
+  ✅ akshare:fetch_index_quotes
+  ✅ akshare:fetch_limit_up_pool
+  ✅ akshare:fetch_limit_down_pool
+  ✅ akshare:fetch_north_hist
+  ✅ akshare:fetch_north_flow_summary
+  🔴 cdp:fetch_north_flow_cdp
 
   数据来源  akshare · CDP · zhangtingke.com
-  生成时间  2026-05-04 09:00:48
+  生成时间  2026-05-04 12:00:30

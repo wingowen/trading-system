@@ -1,6 +1,5 @@
 """
 Chrome CDP 数据采集器
-使用 hermes-agent venv 的 websocket-client
 
 关键发现 (2026-05-03):
   - Page.navigate 在已有 tab 上会阻塞后续命令直到页面 load 完成
@@ -8,25 +7,48 @@ Chrome CDP 数据采集器
   - 东财 dpzjlx.html 渲染后:
     - selector "table" → 主力/超大单/大单/中单/小单净流入
     - selector "[class*=marketData]" → 上证/深证 涨跌平
-  - 已知可用 tab:
-    - https://data.eastmoney.com/zjlx/dpzjlx.html (id: F67A50DE5D26CC11048285DE4D76C75B)
-    - https://quote.eastmoney.com/center/gridlist.html (id: 334C34D0C5E721D73FDB85182A7B9233)
 """
-import re, time, sys, json
-sys.path.insert(0, "/home/wingo/.hermes/hermes-agent/venv/lib/python3.11/site-packages")
-import websocket
+import re, time, json, subprocess
+import websocket  # pip install websocket-client
 
 
-# Chrome Browser WebSocket (稳定)
-BROWSER_WS = "ws://127.0.0.1:9222/devtools/browser/37bb6b0a-c104-4343-9973-4f4e34652bf6"
+# ─── Browser WS 动态发现 ──────────────────────────────────────────────────────
 
+_BROWSER_WS: str = ""
+
+
+def _get_browser_ws() -> str:
+    """
+    从 Chrome CDP HTTP 端点动态发现 browser WebSocket URL。
+    每次调用都重新查询，避免硬编码 Browser Context ID。
+    """
+    global _BROWSER_WS
+    if _BROWSER_WS:
+        return _BROWSER_WS
+    try:
+        r = subprocess.run(
+            ["curl", "-s", "http://127.0.0.1:9222/json/version"],
+            capture_output=True, text=True, timeout=5
+        )
+        info = json.loads(r.stdout)
+        ws_url = info.get("webSocketDebuggerUrl", "")
+        if ws_url:
+            _BROWSER_WS = ws_url
+            return ws_url
+    except Exception:
+        pass
+    return ""
+
+
+# ─── Tab 发现 ────────────────────────────────────────────────────────────────
 
 def _get_tab_ws(patterns=("eastmoney",)):
     """从 Chrome CDP 找指定 URL 的 tab WebSocket URL"""
-    import subprocess
     try:
-        r = subprocess.run(["curl", "-s", "http://127.0.0.1:9222/json"],
-                           capture_output=True, text=True, timeout=5)
+        r = subprocess.run(
+            ["curl", "-s", "http://127.0.0.1:9222/json"],
+            capture_output=True, text=True, timeout=5
+        )
         tabs = json.loads(r.stdout)
         for t in tabs:
             url = t.get("url", "")
@@ -37,13 +59,18 @@ def _get_tab_ws(patterns=("eastmoney",)):
     return None
 
 
+# ─── 核心 CDP 操作 ───────────────────────────────────────────────────────────
+
 def _new_page(url: str, wait: float = 5.0) -> str:
     """
     用 Target.createTarget 在 Browser WS 上新建 tab，返回 pageId。
     页面加载完后 tab 留在内存，可以复用。
     """
+    browser_ws = _get_browser_ws()
+    if not browser_ws:
+        return ""
     try:
-        ws = websocket.create_connection(BROWSER_WS, timeout=10, suppress_origin=True)
+        ws = websocket.create_connection(browser_ws, timeout=10, suppress_origin=True)
         ws.settimeout(15)
 
         results = {}
@@ -59,7 +86,6 @@ def _new_page(url: str, wait: float = 5.0) -> str:
                         rid = d.get("id")
                         if rid is not None:
                             results[rid] = d
-                        # Listen for Target.attachedToTarget (new tab event)
                         if d.get("method") == "Target.attachedToTarget":
                             results["_new_tab"] = d["params"]["targetInfo"]["targetId"]
                 except Exception:
@@ -69,7 +95,6 @@ def _new_page(url: str, wait: float = 5.0) -> str:
         t = threading.Thread(target=recv, daemon=True)
         t.start()
 
-        # Create new tab
         ws.send(json.dumps({
             "id": 1,
             "method": "Target.createTarget",
@@ -84,7 +109,7 @@ def _new_page(url: str, wait: float = 5.0) -> str:
 
         page_id = results.get("_new_tab")
         ws.close()
-        time.sleep(wait)  # wait for page SPA render
+        time.sleep(wait)
         return page_id or ""
     except Exception:
         return ""
@@ -118,15 +143,15 @@ def _read_on_tab(ws_url: str, selector: str) -> str:
         t = threading.Thread(target=recv, daemon=True)
         t.start()
 
-        # Enable
         ws.send(json.dumps({"id": 1, "method": "Runtime.enable"}))
         ws.send(json.dumps({"id": 2, "method": "Page.enable"}))
         time.sleep(0.3)
 
-        # Eval
-        expr = (f'document.querySelector("{selector}") '
-                f'? document.querySelector("{selector}").innerText.slice(0,1000) '
-                f': "NOT_FOUND"')
+        expr = (
+            f'document.querySelector("{selector}") '
+            f'? document.querySelector("{selector}").innerText.slice(0,1000) '
+            f': "NOT_FOUND"'
+        )
         ws.send(json.dumps({
             "id": 10,
             "method": "Runtime.evaluate",
@@ -140,7 +165,6 @@ def _read_on_tab(ws_url: str, selector: str) -> str:
             time.sleep(0.2)
 
         ws.close()
-
         r = results.get(10, {})
         val = r.get("result", {})
         if isinstance(val, dict):
@@ -154,6 +178,8 @@ def _read_on_page(page_id: str, selector: str) -> str:
     """用 page_id 拼接 ws_url 并读取"""
     return _read_on_tab(f"ws://127.0.0.1:9222/devtools/page/{page_id}", selector)
 
+
+# ─── 数据解析 ────────────────────────────────────────────────────────────────
 
 def _parse_money_flow(text: str) -> dict:
     patterns = [
@@ -181,6 +207,8 @@ def _parse_market_data(text: str) -> dict:
     return result
 
 
+# ─── 主采集函数 ──────────────────────────────────────────────────────────────
+
 def fetch_north_flow_cdp() -> dict:
     """
     CDP 读东财北向资金 dpzjlx.html
@@ -198,14 +226,13 @@ def fetch_north_flow_cdp() -> dict:
     # 找已有东财 tab
     ws_url = _get_tab_ws(["data.eastmoney.com", "zjlx"])
     if not ws_url:
-        return {**result, "error": "无东财dpzjlx tab"}
+        return {**result, "error": "无东财dpzjlx tab，请先在 Chrome 打开 https://data.eastmoney.com/zjlx/dpzjlx.html"}
 
-    # 用已知可用的 tab 直接读（tab 已在 dpzjlx.html 页面）
-    # 先尝试直接读
+    # 直接读已有 tab
     table_text = _read_on_tab(ws_url, "table")
     market_text = _read_on_tab(ws_url, "[class*=marketData]")
 
-    # 如果 NOT_FOUND，用 Target.createTarget 开新 tab
+    # 如果 NOT_FOUND，开新 tab
     if not table_text or table_text == "NOT_FOUND":
         page_id = _new_page("https://data.eastmoney.com/zjlx/dpzjlx.html", wait=5.0)
         if page_id:
