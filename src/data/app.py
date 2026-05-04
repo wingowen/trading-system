@@ -18,6 +18,10 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 # 统一DB路径：与db_writer.py保持一致
 DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
 
+# 确保 src 路径在 sys.path（这样直接 python app.py 也能用 src.data.xxx 导入）
+if BASE not in sys.path:
+    sys.path.insert(0, BASE)
+
 app = Flask(__name__,
             template_folder=os.path.join(BASE, "templates"),
             static_folder=None)
@@ -877,9 +881,14 @@ def cdp_screenshot_file(filename):
 
 
 # 注册 API 蓝图
-from .api_trades import trades_bp
-from .api_strategy import strategy_bp
-from .api_orchestrator import orchestrator_bp
+import sys, os as _os
+_data_dir = _os.path.dirname(_os.path.abspath(__file__))
+if _data_dir not in sys.path:
+    sys.path.insert(0, _data_dir)
+
+from api_trades import trades_bp
+from api_strategy import strategy_bp
+from api_orchestrator import orchestrator_bp
 app.register_blueprint(trades_bp)
 app.register_blueprint(strategy_bp)
 app.register_blueprint(orchestrator_bp)
