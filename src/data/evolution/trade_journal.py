@@ -46,6 +46,7 @@ class TradeJournal:
                 reason          TEXT,
                 pnl_percent     REAL DEFAULT 0,
                 holding_days    INTEGER DEFAULT 0,
+                status          TEXT DEFAULT 'holding',  -- 'holding' | 'exited'
                 created_at      TEXT DEFAULT (datetime('now', 'localtime')),
                 updated_at      TEXT DEFAULT (datetime('now', 'localtime')),
                 UNIQUE(trade_id, action)
@@ -70,12 +71,15 @@ class TradeJournal:
             conn = _conn()
             conn.execute("""
                 INSERT OR REPLACE INTO trade_journal
-                    (trade_id, action, code, name, price, date,
+                    (trade_id, action, status, code, name, price, date,
                      pattern, sector, market_env_score, sector_score,
-                     stop_loss, take_profit, position_size, created_at, updated_at)
-                VALUES (?, 'entry', ?, ?, ?, ?,
-                        ?, ?, ?, ?,
-                        ?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+                     stop_loss, take_profit, position_size,
+                     created_at, updated_at)
+                VALUES
+                    (?, 'entry', 'holding', ?, ?, ?, ?,
+                     ?, ?, ?, ?,
+                     ?, ?, ?,
+                     datetime('now', 'localtime'), datetime('now', 'localtime'))
             """, (
                 trade_id,
                 trade_data.get("code", ""),
@@ -106,10 +110,11 @@ class TradeJournal:
             conn = _conn()
             conn.execute("""
                 INSERT OR REPLACE INTO trade_journal
-                    (trade_id, action, code, name, price, date,
+                    (trade_id, action, status, code, name, price, date,
                      reason, pnl_percent, holding_days, updated_at)
-                VALUES (?, 'exit', ?, ?, ?, ?,
-                        ?, ?, ?, datetime('now', 'localtime'))
+                VALUES
+                    (?, 'exit', 'exited', ?, ?, ?, ?,
+                     ?, ?, ?, datetime('now', 'localtime'))
             """, (
                 trade_id,
                 trade_data.get("code", ""),
@@ -120,6 +125,12 @@ class TradeJournal:
                 trade_data.get("pnl_percent", 0),
                 trade_data.get("holding_days", 0),
             ))
+            # 同步更新入场记录的 status 为 exited
+            conn.execute("""
+                UPDATE trade_journal
+                SET status='exited', updated_at=datetime('now', 'localtime')
+                WHERE trade_id=? AND action='entry'
+            """, (trade_id,))
             conn.commit()
             conn.close()
             return {"status": "success", "trade_id": trade_id}
@@ -131,7 +142,7 @@ class TradeJournal:
         conn = _conn()
         rows = conn.execute(
             "SELECT * FROM trade_journal WHERE trade_id=? ORDER BY action",
-            (trade_id,)
+            (trade_id,),
         ).fetchall()
         conn.close()
         if not rows:
@@ -147,3 +158,93 @@ class TradeJournal:
         ).fetchall()
         conn.close()
         return {"status": "success", "trades": [dict(r) for r in rows]}
+
+    def query_trades(
+        self,
+        status: str = None,       # 'holding' | 'exited' | None (all)
+        start_date: str = None,
+        end_date: str = None,
+        sector: str = None,
+        pattern: str = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        """分页查询交易记录（仅查 entry 记录，按日期降序）"""
+        conn = _conn()
+        conditions = ["action = 'entry'"]
+        params: list = []
+
+        if status == "holding":
+            conditions.append("status = 'holding'")
+        elif status == "exited":
+            conditions.append("status = 'exited'")
+
+        if start_date:
+            conditions.append("date >= ?")
+            params.append(start_date)
+        if end_date:
+            conditions.append("date <= ?")
+            params.append(end_date)
+        if sector:
+            conditions.append("sector = ?")
+            params.append(sector)
+        if pattern:
+            conditions.append("pattern = ?")
+            params.append(pattern)
+
+        where = " AND ".join(conditions)
+
+        # 总数
+        total = conn.execute(
+            f"SELECT COUNT(*) as cnt FROM trade_journal WHERE {where}", params
+        ).fetchone()["cnt"]
+
+        # 分页
+        offset = (page - 1) * page_size
+        rows = conn.execute(
+            f"""
+            SELECT * FROM trade_journal
+            WHERE {where}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            params + [page_size, offset],
+        ).fetchall()
+        conn.close()
+
+        return {
+            "trades": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def get_summary(self) -> Dict[str, Any]:
+        """交易汇总统计"""
+        conn = _conn()
+        row = conn.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status='holding' THEN 1 ELSE 0 END) as holding,
+                SUM(CASE WHEN status='exited' AND pnl_percent > 0 THEN 1 ELSE 0 END) as win_count,
+                SUM(CASE WHEN status='exited' AND pnl_percent < 0 THEN 1 ELSE 0 END) as loss_count
+            FROM trade_journal
+            WHERE action = 'entry'
+        """).fetchone()
+        conn.close()
+
+        total = row["total"] or 0
+        holding = row["holding"] or 0
+        closed = total - holding
+        wins = row["win_count"] or 0
+        losses = row["loss_count"] or 0
+        win_rate = round(wins / closed, 3) if closed > 0 else 0.0
+
+        return {
+            "total": total,
+            "holding": holding,
+            "closed": closed,
+            "win_count": wins,
+            "loss_count": losses,
+            "win_rate": win_rate,
+        }
