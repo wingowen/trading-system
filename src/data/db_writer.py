@@ -5,7 +5,7 @@ StockExpert 数据库写入层
 import sqlite3, json, datetime
 from typing import Optional, Any
 
-DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
+from .config import DB_PATH
 
 
 def get_conn():

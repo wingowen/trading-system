@@ -5,7 +5,7 @@
 import os
 from flask import Blueprint, request, jsonify
 from functools import wraps
-from evolution.trade_journal import TradeJournal
+from .evolution.trade_journal import TradeJournal
 
 _api_key = os.environ.get("FLASK_API_KEY", "")
 

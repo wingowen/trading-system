@@ -14,9 +14,9 @@ import sys, os, sqlite3, json, datetime
 from functools import wraps
 from flask import Flask, render_template_string, request, jsonify
 
+from .config import DB_PATH
+
 BASE = os.path.dirname(os.path.abspath(__file__))
-# 统一DB路径：与db_writer.py保持一致
-DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
 
 # 确保 src 路径在 sys.path（这样直接 python app.py 也能用 src.data.xxx 导入）
 if BASE not in sys.path:
@@ -241,8 +241,7 @@ def _cdp_screenshot_on_browser(url: str) -> bytes:
     用 curl + Chrome DevTools HTTP API 创建 tab，然后 WebSocket 截屏。
     curl -X PUT http://127.0.0.1:9222/json/new?url=...  → 稳定创建新 tab
     """
-    import sys as _sys, subprocess as _subprocess, time as _time
-    _sys.path.insert(0, "/home/wingo/.hermes/hermes-agent/venv/lib/python3.11/site-packages")
+    import subprocess as _subprocess, time as _time
     import websocket as _ws, json as _json, base64 as _b64
 
     try:
@@ -509,6 +508,7 @@ HTML_TEMPLATE = """
     <a class="tab-link" href="/trade-log">交易日志</a>
     <a class="tab-link" href="/strategy-review">策略评估</a>
     <a class="tab-link" href="/orchestrator">编排器</a>
+    <a class="tab-link" href="/code-explorer">🧠 代码探索</a>
   </nav>
   <div class="header-controls">
     <select id="dateSelect"></select>
@@ -886,9 +886,9 @@ _data_dir = _os.path.dirname(_os.path.abspath(__file__))
 if _data_dir not in sys.path:
     sys.path.insert(0, _data_dir)
 
-from api_trades import trades_bp
-from api_strategy import strategy_bp
-from api_orchestrator import orchestrator_bp
+from .api_trades import trades_bp
+from .api_strategy import strategy_bp
+from .api_orchestrator import orchestrator_bp
 app.register_blueprint(trades_bp)
 app.register_blueprint(strategy_bp)
 app.register_blueprint(orchestrator_bp)
@@ -911,6 +911,24 @@ def strategy_review_page():
 def orchestrator_page():
     from flask import render_template
     return render_template("orchestrator.html")
+
+
+@app.route("/code-explorer")
+def code_explorer_page():
+    """
+    GitNexus 代码探索页面（零服务器知识图谱引擎）。
+
+    使用方式：
+    1. 在终端运行: cd /mnt/c/Users/WINGO/Documents/WorkSpace/trading-system
+                    npx gitnexus analyze   # 一次性索引代码库
+                    npx gitnexus serve      # 启动 bridge 模式服务器（端口 18789）
+    2. 然后在浏览器访问本页面，点击「连接本地服务」按钮
+
+    GitNexus Web UI 由 gitnexus.vercel.app 托管，iframe 嵌入。
+    本页面提供一键启动本地 bridge 服务的指引和状态检测。
+    """
+    from flask import render_template
+    return render_template("code_explorer.html")
 
 
 if __name__ == "__main__":

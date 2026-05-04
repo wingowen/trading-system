@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🧠 代码探索 - StockExpert</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+         background: #0d1117; color: #e6edf3; font-size: 14px; }
+
+  header { background: #161b22; border-bottom: 1px solid #30363d; padding: 14px 24px;
+           display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 18px; font-weight: 600; color: #58a6ff; }
+  .tab-nav { display: flex; gap: 4px; }
+  .tab-link { background: #21262d; color: #8b949e; border: 1px solid #30363d;
+              border-radius: 6px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+              text-decoration: none; }
+  .tab-link:hover { color: #e6edf3; }
+  .tab-link.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
+  .content { padding: 24px; }
+
+  /* ── Setup Panel ─────────────────────────────── */
+  .setup-panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+                 overflow: hidden; margin-bottom: 20px; }
+  .setup-header { background: #21262d; padding: 12px 20px; font-size: 14px;
+                 font-weight: 600; border-bottom: 1px solid #30363d;
+                 display: flex; align-items: center; gap: 8px; }
+  .setup-body { padding: 16px 20px; }
+
+  .step { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #21262d; }
+  .step:last-child { border-bottom: none; }
+  .step-num { background: #1f6feb; color: #fff; border-radius: 50%; width: 22px; height: 22px;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 12px; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+  .step-content { flex: 1; }
+  .step-title { font-weight: 600; margin-bottom: 4px; }
+  .step-desc { font-size: 12px; color: #8b949e; margin-bottom: 6px; }
+  .cmd-block { background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+               padding: 8px 14px; font-family: 'Courier New', monospace; font-size: 13px;
+               color: #79c0ff; display: flex; align-items: center; gap: 10px;
+               overflow-x: auto; white-space: nowrap; }
+  .cmd-block .label { color: #8b949e; font-size: 11px; flex-shrink: 0; }
+  .cmd-block .copy-btn { background: #21262d; border: 1px solid #30363d; color: #8b949e;
+                          border-radius: 4px; padding: 2px 8px; font-size: 11px;
+                          cursor: pointer; margin-left: auto; flex-shrink: 0; }
+  .cmd-block .copy-btn:hover { color: #e6edf3; }
+
+  .status-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .status-dot.ok { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+  .status-dot.off { background: #484f58; }
+  .status-dot.err { background: #f85149; }
+  .status-text { font-size: 13px; }
+  .status-url { font-size: 12px; color: #8b949e; font-family: monospace; }
+
+  .btn { background: #238636; border: 1px solid #238636; color: #fff;
+         border-radius: 6px; padding: 7px 16px; font-size: 13px; cursor: pointer; }
+  .btn:hover { background: #2ea043; }
+  .btn.primary { background: #1f6feb; border-color: #1f6feb; }
+  .btn.primary:hover { background: #388bfd; }
+  .btn:disabled { background: #484f58; border-color: #484f58; cursor: not-allowed; }
+
+  /* ── iframe ──────────────────────────────────── */
+  .iframe-wrap { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+                 overflow: hidden; position: relative; }
+  .iframe-header { background: #21262d; padding: 10px 16px; font-size: 13px;
+                   border-bottom: 1px solid #30363d; display: flex;
+                   align-items: center; gap: 10px; }
+  .iframe-header .badge { background: #238636; color: #fff; border-radius: 10px;
+                          padding: 1px 8px; font-size: 11px; }
+  .iframe-header .badge.offline { background: #484f58; }
+  iframe { width: 100%; height: calc(100vh - 260px); border: none; display: block; }
+
+  .iframe-placeholder { text-align: center; padding: 60px 20px; color: #484f58; }
+  .iframe-placeholder .icon { font-size: 48px; margin-bottom: 12px; }
+  .iframe-placeholder p { margin-bottom: 6px; }
+
+  /* ── What is GitNexus ────────────────────────── */
+  .info-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr));
+                gap: 14px; margin-top: 20px; }
+  .info-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+               padding: 14px 16px; }
+  .info-card h3 { font-size: 13px; color: #e6edf3; margin-bottom: 6px; }
+  .info-card p { font-size: 12px; color: #8b949e; line-height: 1.5; }
+  .info-card .tag { display: inline-block; background: #1f6feb22; color: #58a6ff;
+                    border: 1px solid #1f6feb44; border-radius: 4px;
+                    padding: 1px 6px; font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 StockExpert</h1>
+  <nav class="tab-nav">
+    <a class="tab-link" href="/">数据看板</a>
+    <a class="tab-link" href="/trade-log">交易日志</a>
+    <a class="tab-link" href="/strategy-review">策略评估</a>
+    <a class="tab-link" href="/orchestrator">编排器</a>
+    <a class="tab-link active">🧠 代码探索</a>
+  </nav>
+</header>
+
+<div class="content">
+
+  <!-- Status + Quick Start -->
+  <div class="setup-panel">
+    <div class="setup-header">🔧 GitNexus 连接状态</div>
+    <div class="setup-body">
+      <div class="status-row">
+        <div class="status-dot off" id="statusDot"></div>
+        <span class="status-text" id="statusText">检测中…</span>
+        <span class="status-url" id="statusUrl"></span>
+      </div>
+      <div id="cmdList" style="display:none"></div>
+      <button class="btn primary" id="recheckBtn" onclick="checkStatus()">🔄 重新检测</button>
+    </div>
+  </div>
+
+  <!-- GitNexus iframe -->
+  <div class="iframe-wrap">
+    <div class="iframe-header">
+      <span>🧠 GitNexus Web UI</span>
+      <span id="connectionBadge" class="badge offline">离线</span>
+      <span style="margin-left:auto;font-size:11px;color:#484f58">gitnexus.vercel.app · bridge 模式</span>
+    </div>
+    <div id="iframeContainer">
+      <div class="iframe-placeholder">
+        <div class="icon">🔍</div>
+        <p><strong>GitNexus 代码知识图谱</strong></p>
+        <p>按下方步骤启动本地 bridge 服务，即可在这里探索 trading-system 的代码结构</p>
+        <p style="margin-top:10px;font-size:12px">无需上传 · 完全本地 · 支持中文</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feature cards -->
+  <div class="info-cards">
+    <div class="info-card">
+      <h3>📡 Web UI 直接用</h3>
+      <p>无需安装 — 访问 <strong>gitnexus.vercel.app</strong>，粘贴仓库 URL 或拖入 ZIP 文件，即可在浏览器里探索代码知识图谱。</p>
+      <span class="tag">零配置</span>
+    </div>
+    <div class="info-card">
+      <h3>⚡ CLI + Bridge 模式</h3>
+      <p>本地运行 <code>npx gitnexus analyze</code> 索引代码库，再用 <code>gitnexus serve</code> 启动 bridge 服务，本页面直接嵌入 iframe，省去来回切换窗口。</p>
+      <span class="tag">推荐</span>
+    </div>
+    <div class="info-card">
+      <h3">🤖 MCP for AI Agent</h3>
+      <p>安装 GitNexus MCP 后，Claude Code / Cursor / Codex 等 AI 编码工具可以理解 trading-system 的完整调用链、依赖关系，不再瞎改代码。</p>
+      <span class="tag">高级</span>
+    </div>
+    <div class="info-card">
+      <h3">🔗 Graph RAG Agent</h3>
+      <p>基于知识图谱的 RAG — 问任何关于代码的问题（"db_writer.py 怎么写入数据的"），GitNexus 会顺着调用链找到答案。</p>
+      <span class="tag">能力</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const BRIDGE_PORT = 18789;
+const GITNEXUS_WEB = 'https://gitnexus.vercel.app';
+let checkTimer = null;
+
+async function checkStatus() {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  const url = document.getElementById('statusUrl');
+  const badge = document.getElementById('connectionBadge');
+  const container = document.getElementById('iframeContainer');
+
+  dot.className = 'status-dot off';
+  text.textContent = '正在连接 localhost:' + BRIDGE_PORT + '…';
+  url.textContent = '';
+
+  try {
+    const r = await fetch(`http://localhost:${BRIDGE_PORT}/health`, {
+      signal: AbortSignal.timeout(2000)
+    });
+    if (r.ok) {
+      dot.className = 'status-dot ok';
+      text.textContent = '✅ Bridge 服务已连接';
+      url.textContent = `http://localhost:${BRIDGE_PORT}`;
+      badge.className = 'badge';
+      badge.textContent = '已连接';
+
+      // 嵌入 iframe（bridge 模式）
+      container.innerHTML = `<iframe
+        src="${GITNEXUS_WEB}?embed=1"
+        allow="clipboard-read; clipboard-write"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+      ></iframe>`;
+      return;
+    }
+  } catch (_) {}
+
+  // 离线降级：显示 Web UI 链接
+  dot.className = 'status-dot err';
+  text.textContent = '⚠️ Bridge 服务未运行（Web UI 离线模式）';
+  url.textContent = '';
+  badge.className = 'badge offline';
+  badge.textContent = '离线';
+
+  container.innerHTML = `
+    <div class="iframe-placeholder">
+      <div class="icon">🌐</div>
+      <p><strong>GitNexus Web UI（离线模式）</strong></p>
+      <p>本地 bridge 未启动，当前使用在线版本（无需本地索引）</p>
+      <p style="margin-top:8px">
+        <a href="${GITNEXUS_WEB}" target="_blank" class="btn primary" style="text-decoration:none;display:inline-block">
+          🌐 打开 GitNexus Web UI
+        </a>
+      </p>
+      <p style="margin-top:12px;font-size:12px">
+        如需深度集成（知识图谱、Graph RAG），请在终端运行以下命令启动 bridge 服务
+      </p>
+    </div>`;
+
+  showSetupCommands();
+}
+
+function showSetupCommands() {
+  const list = document.getElementById('cmdList');
+  list.style.display = 'block';
+  list.innerHTML = `
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">索引 trading-system 代码库</div>
+        <div class="step-desc">首次运行需要 30 秒左右，后续可直接使用</div>
+        <div class="cmd-block">
+          <span class="label">$</span>
+          <span id="cmd1">cd /mnt/c/Users/WINGO/Documents/WorkSpace/trading-system && npx gitnexus analyze</span>
+          <button class="copy-btn" onclick="copyCmd(this)">复制</button>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">启动 Bridge 服务（端口 ${BRIDGE_PORT}）</div>
+        <div class="step-desc">保持终端运行，本页面会自动检测并连接</div>
+        <div class="cmd-block">
+          <span class="label">$</span>
+          <span id="cmd2">npx gitnexus serve --port ${BRIDGE_PORT}</span>
+          <button class="copy-btn" onclick="copyCmd(this)">复制</button>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">MCP 集成（可选，让 AI Agent 更懂代码）</div>
+        <div class="step-desc">Claude Code / Codex 等 AI 编码工具可以通过 MCP 调用 GitNexus</div>
+        <div class="cmd-block">
+          <span class="label">$</span>
+          <span id="cmd3">claude mcp add gitnexus -- npx -y gitnexus@latest mcp</span>
+          <button class="copy-btn" onclick="copyCmd(this)">复制</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function copyCmd(btn) {
+  const span = btn.previousElementSibling;
+  navigator.clipboard.writeText(span.textContent).then(() => {
+    btn.textContent = '已复制!';
+    setTimeout(() => btn.textContent = '复制', 1500);
+  });
+}
+
+// Auto-check on load, then every 10s
+checkStatus();
+setInterval(checkStatus, 10000);
+</script>
+</body>
+</html>
