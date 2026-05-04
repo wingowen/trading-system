@@ -52,6 +52,12 @@ class TradeJournal:
             )
         """)
         conn.commit()
+        # 确保 status 字段存在（ALTER TABLE for existing dbs）
+        try:
+            conn.execute("ALTER TABLE trade_journal ADD COLUMN status TEXT DEFAULT 'holding'")
+            conn.commit()
+        except Exception:
+            pass  # 字段已存在
         conn.close()
 
     def record_entry(self, trade_data: Dict[str, Any]) -> Dict[str, Any]:
