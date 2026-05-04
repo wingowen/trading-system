@@ -18,7 +18,9 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 # 统一DB路径：与db_writer.py保持一致
 DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
 
-app = Flask(__name__)
+app = Flask(__name__,
+            template_folder=os.path.join(BASE, "templates"),
+            static_folder=None)
 app.config["JSON_AS_ASCII"] = False
 app.config["API_KEY"] = os.environ.get("FLASK_API_KEY", "")  # 空 = 不启用鉴权
 
@@ -869,6 +871,26 @@ from src.data.api_orchestrator import orchestrator_bp
 app.register_blueprint(trades_bp)
 app.register_blueprint(strategy_bp)
 app.register_blueprint(orchestrator_bp)
+
+
+# ─── 新增页面路由 ─────────────────────────────────────────────────────────────
+@app.route("/trade-log")
+def trade_log_page():
+    from flask import render_template
+    return render_template("trade_log.html")
+
+
+@app.route("/strategy-review")
+def strategy_review_page():
+    from flask import render_template
+    return render_template("strategy_review.html")
+
+
+@app.route("/orchestrator")
+def orchestrator_page():
+    from flask import render_template
+    return render_template("orchestrator.html")
+
 
 if __name__ == "__main__":
     # 确保 data 目录存在

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>交易日志 - StockExpert</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+         background: #0d1117; color: #e6edf3; font-size: 14px; }
+
+  header { background: #161b22; border-bottom: 1px solid #30363d; padding: 14px 24px;
+           display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 18px; font-weight: 600; color: #58a6ff; }
+  .tab-nav { display: flex; gap: 4px; }
+  .tab-link { background: #21262d; color: #8b949e; border: 1px solid #30363d;
+              border-radius: 6px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+              text-decoration: none; }
+  .tab-link:hover { color: #e6edf3; }
+  .tab-link.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
+  .toolbar { display: flex; gap: 10px; padding: 16px 24px; align-items: center;
+             flex-wrap: wrap; }
+  select, button, input { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+                         border-radius: 6px; padding: 5px 12px; font-size: 13px; }
+  input[type="date"] { width: 140px; }
+  button { background: #238636; border-color: #238636; cursor: pointer; }
+  button:hover { background: #2ea043; }
+  button.btn-primary { background: #1f6feb; border-color: #1f6feb; }
+  button.btn-primary:hover { background: #388bfd; }
+  button.btn-danger { background: #da3633; border-color: #da3633; }
+  button.btn-danger:hover { background: #f85149; }
+
+  .summary-bar { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px,1fr));
+                 gap: 12px; padding: 0 24px 16px; }
+  .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+               padding: 12px 16px; }
+  .stat-label { font-size: 11px; color: #8b949e; }
+  .stat-value { font-size: 20px; font-weight: 700; color: #79c0ff; margin-top: 4px;
+                 font-variant-numeric: tabular-nums; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #21262d; color: #8b949e; font-size: 11px; text-align: left;
+       padding: 8px 12px; border-bottom: 1px solid #30363d; font-weight: 400; }
+  td { padding: 9px 12px; border-bottom: 1px solid #21262d; font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #1c2128; }
+  .badge { display: inline-block; border-radius: 10px; padding: 1px 8px;
+           font-size: 11px; font-weight: 600; }
+  .badge.holding { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb66; }
+  .badge.exited { background: #23863622; color: #3fb950; border: 1px solid #23863666; }
+  .badge.win { background: #3fb95022; color: #3fb950; }
+  .badge.loss { background: #f8514922; color: #f85149; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .modal { display: none; position: fixed; inset: 0; background: #0008;
+           align-items: center; justify-content: center; z-index: 100; }
+  .modal.show { display: flex; }
+  .modal-content { background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+                   width: 480px; max-width: 95vw; padding: 24px; }
+  .modal h2 { font-size: 16px; margin-bottom: 16px; color: #79c0ff; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 12px; color: #8b949e; }
+  .form-group input, .form-group select { width: 100%; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  .pagination { display: flex; gap: 8px; align-items: center; padding: 12px 24px;
+                justify-content: center; }
+  .pagination button { padding: 4px 10px; font-size: 12px; }
+  .pagination span { font-size: 13px; color: #8b949e; }
+  .empty { text-align: center; padding: 48px; color: #484f58; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 StockExpert</h1>
+  <nav class="tab-nav">
+    <a class="tab-link" href="/">数据看板</a>
+    <a class="tab-link active" href="/trade-log">交易日志</a>
+    <a class="tab-link" href="/strategy-review">策略评估</a>
+    <a class="tab-link" href="/orchestrator">编排器</a>
+  </nav>
+</header>
+
+<div class="toolbar">
+  <select id="filter-status">
+    <option value="all">全部状态</option>
+    <option value="holding">持仓中</option>
+    <option value="exited">已平仓</option>
+  </select>
+  <input type="date" id="filter-start" placeholder="开始日期">
+  <input type="date" id="filter-end" placeholder="结束日期">
+  <select id="filter-sector">
+    <option value="">全部板块</option>
+  </select>
+  <select id="filter-pattern">
+    <option value="">全部形态</option>
+  </select>
+  <button onclick="loadTrades(1)">🔍 查询</button>
+  <button class="btn-primary" onclick="openEntryModal()">+ 入场</button>
+</div>
+
+<div class="summary-bar" id="summary-bar">
+  <div class="stat-card"><div class="stat-label">总交易</div><div class="stat-value" id="s-total">-</div></div>
+  <div class="stat-card"><div class="stat-label">持仓中</div><div class="stat-value" id="s-holding">-</div></div>
+  <div class="stat-card"><div class="stat-label">已平仓</div><div class="stat-value" id="s-closed">-</div></div>
+  <div class="stat-card"><div class="stat-label">胜率</div><div class="stat-value" id="s-winrate">-</div></div>
+  <div class="stat-card"><div class="stat-label">盈利次数</div><div class="stat-value" id="s-wins">-</div></div>
+  <div class="stat-card"><div class="stat-label">亏损次数</div><div class="stat-value" id="s-losses">-</div></div>
+</div>
+
+<div style="padding: 0 24px 16px;">
+  <table>
+    <thead>
+      <tr>
+        <th>代码</th><th>名称</th><th>形态</th><th>板块</th>
+        <th>买入价</th><th>买入日期</th><th>止损</th><th>止盈</th>
+        <th>卖出价</th><th>盈亏%</th><th>持仓天数</th><th>状态</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="trades-body">
+      <tr><td colspan="13" class="empty">加载中...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="pagination" id="pagination"></div>
+
+<!-- 入场 Modal -->
+<div class="modal" id="entry-modal">
+  <div class="modal-content">
+    <h2>录入入场</h2>
+    <div class="form-grid">
+      <div class="form-group full">
+        <label>交易ID</label>
+        <input type="text" id="e-trade_id" placeholder="如: TRADE-2026-001">
+      </div>
+      <div class="form-group">
+        <label>股票代码</label>
+        <input type="text" id="e-code" placeholder="如: 600519">
+      </div>
+      <div class="form-group">
+        <label>股票名称</label>
+        <input type="text" id="e-name" placeholder="如: 贵州茅台">
+      </div>
+      <div class="form-group">
+        <label>买入价格</label>
+        <input type="number" step="0.01" id="e-buy_price" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label>买入日期</label>
+        <input type="date" id="e-buy_date">
+      </div>
+      <div class="form-group">
+        <label>持仓数量</label>
+        <input type="number" step="0" id="e-position_size" placeholder="100">
+      </div>
+      <div class="form-group">
+        <label>止损价</label>
+        <input type="number" step="0.01" id="e-stop_loss" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label>止盈价</label>
+        <input type="number" step="0.01" id="e-take_profit" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label>形态</label>
+        <select id="e-pattern">
+          <option value="">请选择</option>
+          <option value="突破">突破</option>
+          <option value="回调">回调</option>
+          <option value="趋势">趋势</option>
+          <option value="震荡">震荡</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>板块</label>
+        <input type="text" id="e-sector" placeholder="如: 白酒">
+      </div>
+      <div class="form-group full">
+        <label>备注</label>
+        <input type="text" id="e-reason" placeholder="入场理由（可选）">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button onclick="closeEntryModal()">取消</button>
+      <button class="btn-primary" onclick="submitEntry()">确认入场</button>
+    </div>
+  </div>
+</div>
+
+<!-- 平仓 Modal -->
+<div class="modal" id="exit-modal">
+  <div class="modal-content">
+    <h2>记录平仓</h2>
+    <div class="form-grid">
+      <div class="form-group full">
+        <label>交易ID</label>
+        <input type="text" id="x-trade_id" readonly style="background:#0d1117">
+      </div>
+      <div class="form-group">
+        <label>股票名称</label>
+        <input type="text" id="x-name" readonly style="background:#0d1117">
+      </div>
+      <div class="form-group">
+        <label>买入价格</label>
+        <input type="text" id="x-buy_price" readonly style="background:#0d1117">
+      </div>
+      <div class="form-group">
+        <label>卖出价格</label>
+        <input type="number" step="0.01" id="x-sell_price" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label>卖出日期</label>
+        <input type="date" id="x-sell_date">
+      </div>
+      <div class="form-group full">
+        <label>持仓天数</label>
+        <input type="number" id="x-holding_days" placeholder="自动计算">
+      </div>
+      <div class="form-group full">
+        <label>盈亏%</label>
+        <input type="number" step="0.01" id="x-pnl_percent" placeholder="自动计算">
+      </div>
+      <div class="form-group full">
+        <label>平仓理由</label>
+        <input type="text" id="x-reason" placeholder="如: 止损/止盈/主动卖出">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button onclick="closeExitModal()">取消</button>
+      <button class="btn-danger" onclick="submitExit()">确认平仓</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/trades';
+
+function api(url, method, body) {
+  return fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(r => r.json());
+}
+
+async function loadTrades(page) {
+  const params = new URLSearchParams({ page, page_size: 20 });
+  const status = document.getElementById('filter-status').value;
+  if (status !== 'all') params.set('status', status);
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  const sector = document.getElementById('filter-sector').value;
+  const pattern = document.getElementById('filter-pattern').value;
+  if (start) params.set('start_date', start);
+  if (end) params.set('end_date', end);
+  if (sector) params.set('sector', sector);
+  if (pattern) params.set('pattern', pattern);
+
+  const data = await api(API + '?' + params.toString(), 'GET');
+  renderTrades(data);
+  renderPagination(data);
+  renderSummary(data.summary);
+  populateFilters(data);
+}
+
+function renderTrades(data) {
+  const tbody = document.getElementById('trades-body');
+  const trades = data.trades || [];
+  if (!trades.length) {
+    tbody.innerHTML = '<tr><td colspan="13" class="empty">暂无记录</td></tr>';
+    return;
+  }
+  tbody.innerHTML = trades.map(t => {
+    const pnl = t.pnl_percent || 0;
+    const pnlClass = pnl > 0 ? 'win' : pnl < 0 ? 'loss' : '';
+    const statusClass = t.status === 'holding' ? 'holding' : 'exited';
+    const statusLabel = t.status === 'holding' ? '持仓中' : '已平仓';
+    return `<tr>
+      <td class="num">${t.code || '-'}</td>
+      <td>${t.name || '-'}</td>
+      <td>${t.pattern || '-'}</td>
+      <td>${t.sector || '-'}</td>
+      <td class="num">${t.price ? t.price.toFixed(2) : '-'}</td>
+      <td>${t.date || '-'}</td>
+      <td class="num">${t.stop_loss ? t.stop_loss.toFixed(2) : '-'}</td>
+      <td class="num">${t.take_profit ? t.take_profit.toFixed(2) : '-'}</td>
+      <td class="num">${t.action === 'exit' ? t.price.toFixed(2) : '-'}</td>
+      <td class="num ${pnlClass}">${pnl ? pnl.toFixed(2) + '%' : '-'}</td>
+      <td class="num">${t.holding_days || '-'}</td>
+      <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+      <td>${t.status === 'holding' ? `<button class="btn-danger" style="padding:2px 8px;font-size:11px" onclick="openExitModal('${t.trade_id}')">平仓</button>` : '-'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderSummary(s) {
+  if (!s) return;
+  document.getElementById('s-total').textContent = s.total;
+  document.getElementById('s-holding').textContent = s.holding;
+  document.getElementById('s-closed').textContent = s.closed;
+  document.getElementById('s-winrate').textContent = s.win_rate ? (s.win_rate * 100).toFixed(0) + '%' : '-';
+  document.getElementById('s-wins').textContent = s.win_count;
+  document.getElementById('s-losses').textContent = s.loss_count;
+}
+
+function renderPagination(data) {
+  const div = document.getElementById('pagination');
+  const { page, page_size, total } = data;
+  const totalPages = Math.ceil(total / page_size);
+  if (totalPages <= 1) { div.innerHTML = ''; return; }
+  let html = `<button ${page <= 1 ? 'disabled' : ''} onclick="loadTrades(${page-1})">上一页</button>
+               <span>第 ${page} / ${totalPages} 页，共 ${total} 条</span>
+               <button ${page >= totalPages ? 'disabled' : ''} onclick="loadTrades(${page+1})">下一页</button>`;
+  div.innerHTML = html;
+}
+
+function populateFilters(data) {
+  // 动态填充板块/形态下拉（去重已有值）
+  const trades = data.trades || [];
+  const sectors = [...new Set(trades.map(t => t.sector).filter(Boolean))];
+  const patterns = [...new Set(trades.map(t => t.pattern).filter(Boolean))];
+  const sSel = document.getElementById('filter-sector');
+  const pSel = document.getElementById('filter-pattern');
+  if (sectors.length && sSel.options.length <= 1) {
+    sectors.forEach(s => sSel.add(new Option(s, s)));
+  }
+  if (patterns.length && pSel.options.length <= 1) {
+    patterns.forEach(p => pSel.add(new Option(p, p)));
+  }
+}
+
+// Entry modal
+function openEntryModal() {
+  document.getElementById('entry-modal').classList.add('show');
+  document.getElementById('e-trade_id').value = 'TRADE-' + Date.now();
+  document.getElementById('e-buy_date').value = new Date().toISOString().slice(0, 10);
+}
+function closeEntryModal() {
+  document.getElementById('entry-modal').classList.remove('show');
+}
+async function submitEntry() {
+  const d = {
+    trade_id: document.getElementById('e-trade_id').value,
+    code: document.getElementById('e-code').value,
+    name: document.getElementById('e-name').value,
+    buy_price: parseFloat(document.getElementById('e-buy_price').value) || 0,
+    buy_date: document.getElementById('e-buy_date').value,
+    position_size: parseFloat(document.getElementById('e-position_size').value) || 0,
+    stop_loss: parseFloat(document.getElementById('e-stop_loss').value) || 0,
+    take_profit: parseFloat(document.getElementById('e-take_profit').value) || 0,
+    pattern: document.getElementById('e-pattern').value,
+    sector: document.getElementById('e-sector').value,
+    reason: document.getElementById('e-reason').value,
+  };
+  if (!d.trade_id || !d.code) { alert('交易ID和股票代码必填'); return; }
+  const r = await api(API, 'POST', d);
+  if (r.status === 'success') {
+    closeEntryModal();
+    loadTrades(1);
+  } else {
+    alert('失败: ' + (r.message || r.error));
+  }
+}
+
+// Exit modal
+let _exitTrade = {};
+function openExitModal(tradeId) {
+  document.getElementById('exit-modal').classList.add('show');
+  document.getElementById('x-trade_id').value = tradeId;
+  document.getElementById('x-sell_date').value = new Date().toISOString().slice(0, 10);
+  // Find the trade in current loaded data
+  _exitTrade = {};
+  // We'll fetch details from the trade list in page context
+  const rows = document.querySelectorAll('#trades-body tr');
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td');
+    if (cells.length >= 6 && cells[0].textContent.trim() === tradeId) {
+      document.getElementById('x-name').value = cells[2].textContent.trim();
+      break;
+    }
+  }
+}
+function closeExitModal() {
+  document.getElementById('exit-modal').classList.remove('show');
+}
+async function submitExit() {
+  const tradeId = document.getElementById('x-trade_id').value;
+  const sellPrice = parseFloat(document.getElementById('x-sell_price').value) || 0;
+  const sellDate = document.getElementById('x-sell_date').value;
+  const holdingDays = parseInt(document.getElementById('x-holding_days').value) || 0;
+  const pnlPercent = parseFloat(document.getElementById('x-pnl_percent').value) || 0;
+  const reason = document.getElementById('x-reason').value;
+
+  const d = { sell_price: sellPrice, sell_date: sellDate };
+  if (holdingDays) d.holding_days = holdingDays;
+  if (pnlPercent) d.pnl_percent = pnlPercent;
+  if (reason) d.reason = reason;
+
+  const r = await api(API + '/' + tradeId, 'PUT', d);
+  if (r.status === 'success') {
+    closeExitModal();
+    loadTrades(1);
+  } else {
+    alert('失败: ' + (r.message || r.error));
+  }
+}
+
+// Auto-calculate pnl and holding days on sell price change
+document.getElementById('x-sell_price').addEventListener('input', function() {
+  const buyPrice = parseFloat(document.getElementById('x-buy_price').value) || 0;
+  const sellPrice = parseFloat(this.value) || 0;
+  if (buyPrice && sellPrice) {
+    document.getElementById('x-pnl_percent').value = ((sellPrice - buyPrice) / buyPrice * 100).toFixed(2);
+  }
+});
+
+// Init
+loadTrades(1);
+</script>
+</body>
+</html>

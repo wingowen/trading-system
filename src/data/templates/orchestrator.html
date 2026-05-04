@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>编排器 - StockExpert</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+         background: #0d1117; color: #e6edf3; font-size: 14px; }
+
+  header { background: #161b22; border-bottom: 1px solid #30363d; padding: 14px 24px;
+           display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 18px; font-weight: 600; color: #58a6ff; }
+  .tab-nav { display: flex; gap: 4px; }
+  .tab-link { background: #21262d; color: #8b949e; border: 1px solid #30363d;
+              border-radius: 6px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+              text-decoration: none; }
+  .tab-link:hover { color: #e6edf3; }
+  .tab-link.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
+  .toolbar { display: flex; gap: 10px; padding: 16px 24px; align-items: center; }
+  button { background: #238636; border: 1px solid #238636; color: #fff;
+           border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  button:hover { background: #2ea043; }
+  button:disabled { background: #484f58; border-color: #484f58; cursor: not-allowed; }
+  button.run-all { background: #1f6feb; border-color: #1f6feb; }
+  button.run-all:hover { background: #388bfd; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 0 24px 16px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  .card-header { background: #21262d; padding: 10px 16px; font-size: 13px;
+                 font-weight: 600; border-bottom: 1px solid #30363d;
+                 display: flex; align-items: center; gap: 8px; }
+  .card-body { padding: 12px 16px; }
+
+  .sector-item { display: flex; justify-content: space-between; align-items: center;
+                 padding: 7px 0; border-bottom: 1px solid #21262d; }
+  .sector-item:last-child { border-bottom: none; }
+  .sector-name { font-weight: 500; }
+  .sector-chg { font-variant-numeric: tabular-nums; font-size: 13px; }
+  .sector-chg.pos { color: #f85149; }
+  .sector-chg.neg { color: #3fb950; }
+
+  .stock-item { display: flex; justify-content: space-between; align-items: center;
+                 padding: 5px 0; font-size: 13px; border-bottom: 1px solid #21262d; }
+  .stock-item:last-child { border-bottom: none; }
+  .stock-name { font-weight: 500; min-width: 70px; }
+  .stock-meta { display: flex; gap: 8px; font-size: 11px; color: #8b949e; }
+  .stock-badge { border-radius: 4px; padding: 1px 5px; font-size: 10px; }
+  .badge-ma { background: #1f6feb22; color: #58a6ff; }
+  .badge-vol { background: #d2992222; color: #d29922; }
+
+  .run-status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; }
+  .spinner { width: 14px; height: 14px; border: 2px solid #30363d; border-top-color: #58a6ff;
+             border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #21262d; color: #8b949e; font-size: 11px; text-align: left;
+       padding: 7px 12px; border-bottom: 1px solid #30363d; font-weight: 400; }
+  td { padding: 7px 12px; border-bottom: 1px solid #21262d; font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #1c2128; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .loading { text-align: center; padding: 40px; color: #484f58; }
+  .empty { text-align: center; padding: 20px; color: #484f58; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 StockExpert</h1>
+  <nav class="tab-nav">
+    <a class="tab-link" href="/">数据看板</a>
+    <a class="tab-link" href="/trade-log">交易日志</a>
+    <a class="tab-link" href="/strategy-review">策略评估</a>
+    <a class="tab-link active" href="/orchestrator">编排器</a>
+  </nav>
+</header>
+
+<div class="toolbar">
+  <button class="run-all" onclick="runAll()" id="btn-run">▶ 采集强势板块 & 筛选</button>
+  <button onclick="runSectors()" id="btn-sectors">📂 仅采集板块</button>
+  <div class="run-status" id="run-status"></div>
+</div>
+
+<div id="content">
+  <div class="loading">点击「采集强势板块」开始运行</div>
+</div>
+
+<script>
+let runState = { running: false };
+
+function setStatus(msg, spinner = false) {
+  document.getElementById('run-status').innerHTML = spinner
+    ? `<div class="spinner"></div><span>${msg}</span>`
+    : msg;
+}
+function setRunning(running) {
+  runState.running = running;
+  document.getElementById('btn-run').disabled = running;
+  document.getElementById('btn-sectors').disabled = running;
+}
+
+async function runSectors() {
+  setRunning(true);
+  setStatus('采集强势板块...', true);
+  try {
+    const r = await fetch('/api/orchestrator/sectors').then(r => r.json());
+    if (r.status === 'success') {
+      renderSectors(r.strong_sectors);
+      setStatus(`✅ 获取 ${r.strong_sectors.length} 个强势板块`);
+    } else {
+      setStatus('❌ ' + (r.error || 'failed'));
+    }
+  } finally {
+    setRunning(false);
+  }
+}
+
+async function runAll() {
+  if (runState.running) return;
+  setRunning(true);
+  setStatus('运行编排链路（采集 → 筛选）...', true);
+
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="loading">精准采集：强势板块 → 成分股 → 单股指标 → 形态筛选</div>';
+
+  try {
+    const r = await fetch('/api/orchestrator/run').then(r => r.json());
+    if (r.status === 'success') {
+      renderResult(r);
+      setStatus(`✅ 找到 ${r.total_candidates} 个候选股票`);
+    } else {
+      content.innerHTML = `<div class="empty" style="color:#f85149">❌ ${r.error || 'run failed'}</div>`;
+      setStatus('❌ failed');
+    }
+  } catch(e) {
+    content.innerHTML = `<div class="empty" style="color:#f85149">❌ ${e.message}</div>`;
+    setStatus('❌ error');
+  } finally {
+    setRunning(false);
+  }
+}
+
+function renderSectors(sectors) {
+  if (!sectors || !sectors.length) {
+    document.getElementById('content').innerHTML = '<div class="empty">未找到强势板块</div>';
+    return;
+  }
+  document.getElementById('content').innerHTML = `
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">📂 强势板块（Top${sectors.length}）</div>
+      <div class="card-body">
+        ${sectors.map(s => {
+          const cls = s.chg_5d >= 0 ? 'pos' : 'neg';
+          return `<div class="sector-item">
+            <span class="sector-name">${s.name}</span>
+            <span class="sector-chg ${cls}">${s.chg_5d >= 0 ? '+' : ''}${s.chg_5d}%</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">💡 下一步</div>
+      <div class="card-body">
+        <p style="color:#8b949e;font-size:13px;line-height:1.6">
+          点击「采集强势板块 & 筛选」继续采集各板块成分股，并进行形态筛选。
+        </p>
+        <br>
+        <button class="run-all" onclick="runAll()">▶ 继续采集 & 筛选</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderResult(r) {
+  const sectors = r.strong_sectors || [];
+  const candidates = r.candidates || [];
+  const bySector = {};
+  candidates.forEach(c => {
+    const s = c.sector || 'unknown';
+    if (!bySector[s]) bySector[s] = [];
+    bySector[s].push(c);
+  });
+
+  let html = `<div class="grid">`;
+
+  // 强势板块
+  html += `<div class="card">
+    <div class="card-header">📂 强势板块（近5日涨幅）</div>
+    <div class="card-body">
+      ${sectors.map(s => {
+        const cls = s.chg_5d >= 0 ? 'pos' : 'neg';
+        return `<div class="sector-item">
+          <span class="sector-name">${s.name}</span>
+          <span class="sector-chg ${cls}">${s.chg_5d >= 0 ? '+' : ''}${s.chg_5d}%</span>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+
+  // 候选股票
+  html += `<div class="card">
+    <div class="card-header">🎯 候选股票（${candidates.length}）</div>
+    <div class="card-body" style="max-height:400px;overflow-y:auto">`;
+  if (!candidates.length) {
+    html += '<div class="empty">暂无候选股票</div>';
+  } else {
+    html += `<table>
+      <thead><tr><th>代码</th><th>名称</th><th>板块</th><th>close</th><th>MA5</th><th>MA10</th><th>量比</th></tr></thead>
+      <tbody>`;
+    for (const c of candidates.slice(0, 50)) {
+      html += `<tr>
+        <td class="num">${c.code || '-'}</td>
+        <td>${c.name || '-'}</td>
+        <td>${c.sector || '-'}</td>
+        <td class="num">${c.close ? c.close.toFixed(2) : '-'}</td>
+        <td class="num">${c.ma5 ? c.ma5.toFixed(2) : '-'}</td>
+        <td class="num">${c.ma10 ? c.ma10.toFixed(2) : '-'}</td>
+        <td class="num">${c.vol_ratio ? c.vol_ratio.toFixed(2) : '-'}</td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+  html += `</div></div></div>`;
+
+  document.getElementById('content').innerHTML = html;
+}
+</script>
+</body>
+</html>
