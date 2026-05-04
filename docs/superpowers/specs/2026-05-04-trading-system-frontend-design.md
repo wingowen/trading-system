@@ -393,56 +393,20 @@ Query params: `date`, `limit`（默认 10）
 |------|------|
 | `src/data/api_trades.py` | 交易日志 CRUD API |
 | `src/data/api_strategy.py` | 策略评估 API |
-| `src/data/api_orchestrator.py` | 编排器 API |
-| `src/data/templates/` | 前端 HTML 片段（可选，分离模板） |
+| `src/data/api_orchestrator.py` | 编排器 API + 数据采集 |
 
 **注意：** 所有新 API 复用现有 `app.py` 的 `require_api_key` 装饰器模式。
 
 ### 5.2 数据库变更
 
-**trade_journal 表已有**，结构无需变更。但需要新增查询方法：
+**trade_journal 表已有**，但**缺少 `status` 字段**（用于快速判断持仓/已平仓）。新增字段：
 
 ```sql
--- 按状态/日期范围查询
-SELECT * FROM trade_journal 
-WHERE (? = 'all' OR ? = status)  -- status: holding/exited
-AND (? IS NULL OR buy_date >= ?)
-AND (? IS NULL OR buy_date <= ?)
-ORDER BY created_at DESC;
-
--- 汇总统计
-SELECT 
-  COUNT(*) as total,
-  SUM(CASE WHEN status='holding' THEN 1 ELSE 0 END) as holding,
-  SUM(CASE WHEN status='exited' AND pnl_percent>0 THEN 1 ELSE 0 END) as wins,
-  SUM(CASE WHEN status='exited' AND pnl_percent<0 THEN 1 ELSE 0 END) as losses
-FROM trade_journal;
+ALTER TABLE trade_journal ADD COLUMN status TEXT DEFAULT 'holding';
+-- holding / exited
 ```
 
-**trade_journal 表结构更新**（确认现有字段）：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| trade_id | TEXT | 主键 |
-| action | TEXT | 'entry' / 'exit' |
-| code | TEXT | 股票代码 |
-| name | TEXT | 股票名称 |
-| price | REAL | 入场/出场价格 |
-| date | TEXT | 入场/出场日期 |
-| pattern | TEXT | 形态 |
-| sector | TEXT | 板块 |
-| market_env_score | REAL | 市场评分 |
-| sector_score | REAL | 板块评分 |
-| stop_loss | REAL | 止损价 |
-| take_profit | REAL | 止盈价 |
-| position_size | REAL | 仓位% |
-| reason | TEXT | 入场/出场原因 |
-| pnl_percent | REAL | 盈亏% |
-| holding_days | INTEGER | 持仓天数 |
-| status | TEXT | holding/exited（冗余，方便查询） |
-| created_at | TEXT | 创建时间 |
-
-**需要确认：** 现有 `trade_journal` 表是否有 `status` 字段？如果没有需要新增。
+并在使用时同步维护：`record_entry` 时设为 `holding`，`record_exit` 时设为 `exited`。
 
 ### 5.3 前端变更
 
@@ -482,9 +446,9 @@ FROM trade_journal;
 
 ## 七、待确认事项
 
-- [ ] `trade_journal` 表是否已有 `status` 字段（holding/exited）？如果没有需要 ALTER TABLE。
-- [ ] 编排器的板块数据来源？目前 `sector_analyzer` 还是 stub，实现时先显示空或固定值。
-- [ ] 候选股票数据来源？目前 `stock_screener` 也是 stub，实现时先显示空。
+- [x] `trade_journal` 表已有，但无 `status` 字段，需 ALTER TABLE ADD COLUMN status。
+- [x] 板块数据来源：akshare 行业板块历史接口，按需精准获取强势板块（前5）。
+- [x] 个股数据来源：只查强势板块成分股（前10/板块），不拉全市场。
 
 ---
 
@@ -492,7 +456,60 @@ FROM trade_journal;
 
 - [ ] 交易日志可正常录入入场/出场记录
 - [ ] 策略评估页面显示胜率/盈亏比/形态/板块分组数据
-- [ ] 编排器面板显示大盘评分、板块、候选股
+- [ ] 编排器面板显示大盘评分、板块、候选股（真实数据）
 - [ ] 所有 API 均需 `X-API-Key` 认证
 - [ ] Tab 切换流畅，不刷新页面
 - [ ] 现有数据看板功能不受影响
+
+## 九、数据采集规格（按需精准获取）
+
+### 9.1 采集原则
+
+只获取需要的数据，不批量拉全市场。采集链路：
+
+```
+获取板块列表 -> 筛选强势板块 Top5 -> 获取成分股 Top10/板块 -> 获取成分股实时行情 -> 组装喂入 analyzers
+```
+
+### 9.2 新增采集文件
+
+`src/data/fetchers/sector_stock_fetcher.py`
+
+```python
+def fetch_strong_sectors(top_n: int = 5) -> list[dict]:
+    # 1. ak.stock_board_industry_name_em() 获取全部行业板块
+    # 2. ak.stock_board_industry_hist_em() 取近5日历史
+    # 3. 计算5日涨幅，筛选 TopN
+    # 返回 [{name, daily_gain, gain_5d, up_ratio, volume_rank}, ...]
+
+def fetch_sector_stocks(sector_name: str, top_n: int = 10) -> list[dict]:
+    # 1. ak.stock_board_industry_cons_em(symbol=sector_name)
+    # 2. 取成交量排名 TopN
+    # 返回 [{code, name, close, volume, amount, is_st}, ...]
+
+def enrich_stock_metrics(code: str) -> dict:
+    # 1. ak.stock_zh_a_hist() 取近25日数据
+    # 2. 计算 MA5/MA10/MA20
+    # 3. 计算量比 = 今日成交量 / 5日均量
+    # 返回 {code, close, ma5, ma10, ma20, volume_ratio, is_st, float_mv}
+```
+
+### 9.3 编排器执行数据流
+
+```
+POST /api/orchestrator/run
+  ├─ Step 1: _fetch_market_data()       <- db_reader.get_field() 已有
+  ├─ Step 2: fetch_strong_sectors()      <- akshare，按需精准
+  │     └─ sector_resonance.analyze()
+  ├─ Step 3: 对每个强势板块调用 fetch_sector_stocks()
+  │     └─ 对每只股票调用 enrich_stock_metrics()
+  │           └─ stock_screener.analyze()
+  └─ Step 4: position_tracker.track()
+```
+
+### 9.4 性能注意事项
+
+- 不并发：单线程顺序采集，避免 akshare 服务器压力
+- 超时控制：单板块采集超时 15s，整次编排器执行超时 60s
+- 错误容忍：单板块/单股票失败不影响全局，记录错误继续
+
