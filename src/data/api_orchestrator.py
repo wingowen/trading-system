@@ -7,12 +7,12 @@
 import os, traceback
 from flask import Blueprint, request, jsonify
 from functools import wraps
-from src.data.fetchers.akshare_fetcher import (
+from fetchers.akshare_fetcher import (
     fetch_strong_sectors,
     fetch_sector_stocks,
     enrich_stock_metrics,
 )
-from src.data.analyzers import StockRightPatternScreener
+from analyzers import StockRightPatternScreener
 
 _api_key = os.environ.get("FLASK_API_KEY", "")
 

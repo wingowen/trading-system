@@ -5,7 +5,7 @@
 import os
 from flask import Blueprint, request, jsonify
 from functools import wraps
-from src.data.evolution.trade_journal import TradeJournal
+from evolution.trade_journal import TradeJournal
 
 _api_key = os.environ.get("FLASK_API_KEY", "")
 
@@ -69,7 +69,7 @@ def api_entry():
     buy_date = data.get("buy_date", "")
     if buy_date and not data.get("market_env_score"):
         try:
-            from src.data.db_reader import get_field
+            from db_reader import get_field
             idx_chg = get_field(buy_date, "index_chg_sh000001", "morning")
             if idx_chg is not None:
                 data["market_env_score"] = round(float(idx_chg) * 10 + 50, 1)
