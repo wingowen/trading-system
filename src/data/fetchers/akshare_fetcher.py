@@ -131,3 +131,116 @@ def _df_col(df: pd.DataFrame, *names) -> str:
         if name in df.columns:
             return name
     return df.columns[0] if len(df.columns) > 0 else ""
+
+
+# ─── 精准数据采集：板块 → 个股 ────────────────────────────────────────────────
+
+def fetch_strong_sectors(date: str = None, top_n: int = 5) -> dict:
+    """
+    获取强势板块（近5日累计涨幅 Top N）。
+    链路: stock_board_industry_name_em() → stock_board_industry_hist_em() 查近5日涨幅 → TopN
+    """
+    try:
+        board_df = ak.stock_board_industry_name_em()
+        sectors = []
+        for _, row in board_df.iterrows():
+            name = str(row.get("板块名称", ""))
+            if not name:
+                continue
+            try:
+                hist = ak.stock_board_industry_hist_em(
+                    symbol=name, period="日", start_date=date or "", end_date=date or "", adjust="qfq"
+                )
+                if hist is not None and len(hist) >= 2:
+                    # 取近5日（去掉今日最新）累计涨幅
+                    recent = hist.tail(6)  # 含今日共6条，取前5日
+                    chgs = recent["涨跌幅"].tolist() if "涨跌幅" in recent.columns else []
+                    chg_5d = round(sum(chgs), 2) if chgs else 0.0
+                    close = float(recent.iloc[-1]["收盘"]) if "收盘" in recent.columns else 0
+                    sectors.append({"name": name, "chg_5d": chg_5d, "close": close})
+            except Exception:
+                continue
+
+        # 按5日涨幅降序
+        sectors.sort(key=lambda x: x["chg_5d"], reverse=True)
+        top = sectors[:top_n]
+        return {"status": "success", "strong_sectors": top, "all_count": len(sectors)}
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
+
+
+def fetch_sector_stocks(sector_name: str, top_n: int = 10) -> dict:
+    """
+    获取板块成分股，按涨幅降序取 TopN。
+    链路: stock_board_industry_cons_em() → 日线涨幅排序 → TopN
+    """
+    try:
+        cons_df = ak.stock_board_industry_cons_em(symbol=sector_name)
+        if cons_df is None or cons_df.empty:
+            return {"status": "success", "sector": sector_name, "stocks": []}
+
+        # 取成分股代码
+        codes = []
+        code_col = None
+        for col in ["代码", "代码   ", "股票代码"]:
+            if col in cons_df.columns:
+                code_col = col
+                break
+        if code_col:
+            codes = cons_df[code_col].dropna().astype(str).str.strip().tolist()[:30]  # 最多30只
+
+        stocks = []
+        for code in codes[:15]:  # 最多查15只
+            code_clean = code.replace(".SH", "").replace(".SZ", "").strip()
+            try:
+                hist = ak.stock_zh_a_hist(
+                    symbol=code_clean, period="日", start_date="", end_date="", adjust="qfq"
+                )
+                if hist is not None and len(hist) >= 2:
+                    recent = hist.tail(2)
+                    chg = float(recent.iloc[-1]["涨跌幅"]) if "涨跌幅" in recent.columns else 0
+                    close = float(recent.iloc[-1]["收盘"]) if "收盘" in recent.columns else 0
+                    name = str(recent.iloc[-1].get("股票名称", code_clean))
+                    stocks.append({"code": code_clean, "name": name, "chg_1d": chg, "close": close})
+            except Exception:
+                continue
+
+        stocks.sort(key=lambda x: x["chg_1d"], reverse=True)
+        return {"status": "success", "sector": sector_name, "stocks": stocks[:top_n]}
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
+
+
+def enrich_stock_metrics(code: str) -> dict:
+    """
+    单股日线补充 MA5/MA10/MA20/量比。
+    链路: stock_zh_a_hist() → 计算 MA 和量比
+    """
+    try:
+        today = datetime.date.today().strftime("%Y%m%d")
+        hist = ak.stock_zh_a_hist(
+            symbol=code, period="日", start_date="", end_date="", adjust="qfq"
+        )
+        if hist is None or len(hist) < 20:
+            return {"status": "partial", "code": code}
+
+        df = hist.tail(30).copy()
+        df["MA5"] = df["收盘"].rolling(5).mean()
+        df["MA10"] = df["收盘"].rolling(10).mean()
+        df["MA20"] = df["收盘"].rolling(20).mean()
+        vol = df["成交量"].values
+        vol_avg5 = df["成交量"].rolling(5).mean().iloc[-1]
+        vol_ratio = round(float(vol[-1] / vol_avg5), 2) if vol_avg5 and vol_avg5 > 0 else 0
+
+        latest = df.iloc[-1]
+        return {
+            "status": "success",
+            "code": code,
+            "close": float(latest["收盘"]),
+            "ma5": round(float(latest["MA5"]), 2),
+            "ma10": round(float(latest["MA10"]), 2),
+            "ma20": round(float(latest["MA20"]), 2),
+            "vol_ratio": vol_ratio,
+        }
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
