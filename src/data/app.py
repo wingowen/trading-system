@@ -862,6 +862,10 @@ def cdp_screenshot_file(filename):
     return send_from_directory(os.path.join(BASE, "data", "cdp_screenshots"), filename)
 
 
+# 注册 API 蓝图
+from src.data.api_trades import trades_bp
+app.register_blueprint(trades_bp)
+
 if __name__ == "__main__":
     # 确保 data 目录存在
     os.makedirs(os.path.join(BASE, "data"), exist_ok=True)
