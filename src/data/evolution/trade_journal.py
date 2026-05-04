@@ -8,7 +8,7 @@ import sqlite3
 from typing import Any, Dict, Optional
 from datetime import datetime
 
-DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
+from ..config import DB_PATH
 
 
 def _conn():

@@ -14,9 +14,9 @@ import sys, os, sqlite3, json, datetime
 from functools import wraps
 from flask import Flask, render_template_string, request, jsonify
 
+from .config import DB_PATH
+
 BASE = os.path.dirname(os.path.abspath(__file__))
-# 统一DB路径：与db_writer.py保持一致
-DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
 
 # 确保 src 路径在 sys.path（这样直接 python app.py 也能用 src.data.xxx 导入）
 if BASE not in sys.path:
@@ -241,8 +241,7 @@ def _cdp_screenshot_on_browser(url: str) -> bytes:
     用 curl + Chrome DevTools HTTP API 创建 tab，然后 WebSocket 截屏。
     curl -X PUT http://127.0.0.1:9222/json/new?url=...  → 稳定创建新 tab
     """
-    import sys as _sys, subprocess as _subprocess, time as _time
-    _sys.path.insert(0, "/home/wingo/.hermes/hermes-agent/venv/lib/python3.11/site-packages")
+    import subprocess as _subprocess, time as _time
     import websocket as _ws, json as _json, base64 as _b64
 
     try:
@@ -887,9 +886,9 @@ _data_dir = _os.path.dirname(_os.path.abspath(__file__))
 if _data_dir not in sys.path:
     sys.path.insert(0, _data_dir)
 
-from api_trades import trades_bp
-from api_strategy import strategy_bp
-from api_orchestrator import orchestrator_bp
+from .api_trades import trades_bp
+from .api_strategy import strategy_bp
+from .api_orchestrator import orchestrator_bp
 app.register_blueprint(trades_bp)
 app.register_blueprint(strategy_bp)
 app.register_blueprint(orchestrator_bp)
