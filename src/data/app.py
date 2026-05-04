@@ -509,6 +509,7 @@ HTML_TEMPLATE = """
     <a class="tab-link" href="/trade-log">交易日志</a>
     <a class="tab-link" href="/strategy-review">策略评估</a>
     <a class="tab-link" href="/orchestrator">编排器</a>
+    <a class="tab-link" href="/code-explorer">🧠 代码探索</a>
   </nav>
   <div class="header-controls">
     <select id="dateSelect"></select>
@@ -911,6 +912,24 @@ def strategy_review_page():
 def orchestrator_page():
     from flask import render_template
     return render_template("orchestrator.html")
+
+
+@app.route("/code-explorer")
+def code_explorer_page():
+    """
+    GitNexus 代码探索页面（零服务器知识图谱引擎）。
+
+    使用方式：
+    1. 在终端运行: cd /mnt/c/Users/WINGO/Documents/WorkSpace/trading-system
+                    npx gitnexus analyze   # 一次性索引代码库
+                    npx gitnexus serve      # 启动 bridge 模式服务器（端口 18789）
+    2. 然后在浏览器访问本页面，点击「连接本地服务」按钮
+
+    GitNexus Web UI 由 gitnexus.vercel.app 托管，iframe 嵌入。
+    本页面提供一键启动本地 bridge 服务的指引和状态检测。
+    """
+    from flask import render_template
+    return render_template("code_explorer.html")
 
 
 if __name__ == "__main__":
