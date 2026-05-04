@@ -394,6 +394,12 @@ HTML_TEMPLATE = """
   header { background: #161b22; border-bottom: 1px solid #30363d; padding: 14px 24px;
            display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   h1 { font-size: 18px; font-weight: 600; color: #58a6ff; }
+  .tab-nav { display: flex; gap: 4px; margin-left: 24px; }
+  .tab-link { background: #21262d; color: #8b949e; border: 1px solid #30363d;
+              border-radius: 6px; padding: 5px 14px; font-size: 13px;
+              text-decoration: none; }
+  .tab-link:hover { color: #e6edf3; }
+  .tab-link.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
   .header-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   select, button { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
                     border-radius: 6px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
@@ -493,7 +499,13 @@ HTML_TEMPLATE = """
 <body>
 
 <header>
-  <h1>📊 StockExpert 数据看板</h1>
+  <h1>📊 StockExpert</h1>
+  <nav class="tab-nav">
+    <a class="tab-link active" href="/">数据看板</a>
+    <a class="tab-link" href="/trade-log">交易日志</a>
+    <a class="tab-link" href="/strategy-review">策略评估</a>
+    <a class="tab-link" href="/orchestrator">编排器</a>
+  </nav>
   <div class="header-controls">
     <select id="dateSelect"></select>
     <select id="sessionSelect">
