@@ -5,22 +5,31 @@ Flask 服务，端口 5789
 路由:
   GET /                     — 前端看板页面
   GET /api/records           — 所有字段记录 ?date=YYYY-MM-DD&session=morning
-  GET /api/fetch-log         — 采集日志   ?date=YYYY-MM-DD&session=morning
-  GET /api/dates             — 有数据的日期列表
-  GET /api/collect           — 触发全量采集（同步，约30秒）
-  GET /api/field-list        — 字段定义列表（溯源用）
+  GET /api/fetch-log       — 采集日志       ?date=YYYY-MM-DD&session=morning
+  GET /api/dates           — 有数据的日期列表
+  GET /api/collect         — 触发全量采集（同步，约30秒
+  GET /api/field-list      — 字段定义列表（溯源用）
 """
-import sys, os, sqlite3, json, datetime
+import sys
+import os
+import sqlite3
+import json
+import datetime
+import logging
 from functools import wraps
 from flask import Flask, render_template_string, request, jsonify
 
 from .config import DB_PATH
+from .fetchers.cdp_screenshot import take_screenshot
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-
-# 确保 src 路径在 sys.path（这样直接 python app.py 也能用 src.data.xxx 导入）
-if BASE not in sys.path:
-    sys.path.insert(0, BASE)
 
 app = Flask(__name__,
             template_folder=os.path.join(BASE, "templates"),
@@ -236,78 +245,6 @@ def api_fetcher_logs():
     return jsonify({"groups": list(groups.values())})
 
 
-def _cdp_screenshot_on_browser(url: str) -> bytes:
-    """
-    用 curl + Chrome DevTools HTTP API 创建 tab，然后 WebSocket 截屏。
-    curl -X PUT http://127.0.0.1:9222/json/new?url=...  → 稳定创建新 tab
-    """
-    import subprocess as _subprocess, time as _time
-    import websocket as _ws, json as _json, base64 as _b64
-
-    try:
-        # 1. 用 HTTP PUT 创建新 tab
-        r = _subprocess.run(
-            ["curl", "-s", "-X", "PUT",
-             f"http://127.0.0.1:9222/json/new?url={url}"],
-            capture_output=True, text=True, timeout=10
-        )
-        new_tab = _json.loads(r.stdout)
-        ws_url = new_tab.get("webSocketDebuggerUrl")
-        if not ws_url:
-            return None
-
-        # 等 SPA 加载
-        _time.sleep(6)
-
-        # 2. WebSocket 连接 tab 并截图
-        tab_ws = _ws.create_connection(ws_url, timeout=10, suppress_origin=True)
-        tab_ws.settimeout(15)
-        tab_results = {}
-
-        def _recv_tab():
-            deadline = _time.time() + 20
-            while _time.time() < deadline:
-                try:
-                    msg = tab_ws.recv()
-                    if msg:
-                        d = _json.loads(msg)
-                        rid = d.get("id")
-                        if rid is not None:
-                            tab_results[rid] = d
-                except Exception:
-                    break
-
-        import threading as _th
-        t = _th.Thread(target=_recv_tab, daemon=True)
-        t.start()
-
-        tab_ws.send(_json.dumps({"id": 1, "method": "Runtime.enable"}))
-        tab_ws.send(_json.dumps({"id": 2, "method": "Page.enable"}))
-        _time.sleep(0.5)
-        tab_ws.send(_json.dumps({
-            "id": 10,
-            "method": "Page.captureScreenshot",
-            "params": {"format": "png", "quality": 80}
-        }))
-
-        deadline = _time.time() + 15
-        while _time.time() < deadline:
-            if 10 in tab_results:
-                break
-            _time.sleep(0.3)
-
-        tab_ws.close()
-
-        # Chrome CDP returns: {"id": 10, "result": {"data": "base64..."}}
-        result = tab_results.get(10, {})
-        data_str = result.get("result", {}).get("data")
-        if data_str:
-            return _b64.b64decode(data_str)
-    except Exception:
-        pass
-    return None
-
-
 @app.route("/api/cdp-screenshot")
 @require_api_key
 def api_cdp_screenshot():
@@ -326,20 +263,23 @@ def api_cdp_screenshot():
 
     # 如果已存在直接返回
     if os.path.exists(filepath):
+        logger.info(f"使用已存在的截图: {filepath}")
         return jsonify({"ok": True, "path": filepath, "url": f"/cdp-screenshots/{filename}"})
 
     try:
-        img_bytes = _cdp_screenshot_on_browser(
-            "https://data.eastmoney.com/zjlx/dpzjlx.html"
-        )
+        logger.info(f"开始截图 Eastmoney 页面")
+        img_bytes = take_screenshot("https://data.eastmoney.com/zjlx/dpzjlx.html")
         if img_bytes:
             with open(filepath, "wb") as f:
                 f.write(img_bytes)
+            logger.info(f"截图成功，保存到: {filepath}")
             return jsonify({"ok": True, "path": filepath,
                            "url": f"/cdp-screenshots/{filename}"})
+        logger.error("截图失败")
         return jsonify({"ok": False, "error": "截屏失败，tab可能未加载dpzjlx页面"})
     except Exception as e:
         import traceback
+        logger.error(f"截图异常: {str(e)}")
         return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()})
 
 

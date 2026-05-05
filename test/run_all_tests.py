@@ -6,10 +6,21 @@ import subprocess
 import json
 import sys
 import os
+from pathlib import Path
 from datetime import datetime
+import logging
 
-BASE_DIR = "/mnt/c/Users/WINGO/trading-system/test"
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# 动态确定项目根目录
+BASE_DIR = Path(__file__).parent.resolve()
 REPORT_DIR = BASE_DIR
+logger.info(f"测试根目录: {BASE_DIR}")
 
 DATA_SOURCES = {
     "akshare": {
@@ -66,9 +77,9 @@ def run_test(source_name, config):
     if not os.path.exists(script_path):
         return False, f"脚本不存在: {script_path}"
 
-    print(f"\n{'='*60}")
-    print(f"Running {source_name}...")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Running {source_name}...")
+    logger.info(f"{'='*60}")
 
     result = subprocess.run(
         ["python3", script_path],
@@ -160,7 +171,7 @@ def generate_report(source_name, config, output, results):
 
 
 def main():
-    print(f"开始数据源测试 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"开始数据源测试 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     all_reports = {}
 
@@ -184,24 +195,24 @@ def main():
             os.makedirs(os.path.dirname(report_path), exist_ok=True)
             with open(report_path, "w", encoding="utf-8") as f:
                 f.write(report)
-            print(f"  报告已保存: {report_path}")
+            logger.info(f"  报告已保存: {report_path}")
 
     # 生成汇总报告
     summary_report = generate_summary(all_reports)
     summary_path = os.path.join(REPORT_DIR, "DATA_SOURCES_SUMMARY.md")
     with open(summary_path, "w", encoding="utf-8") as f:
         f.write(summary_report)
-    print(f"\n汇总报告: {summary_path}")
+    logger.info(f"\n汇总报告: {summary_path}")
 
     # 打印汇总
-    print(f"\n{'='*60}")
-    print("数据源测试汇总:")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info("数据源测试汇总:")
+    logger.info(f"{'='*60}")
     for name, data in all_reports.items():
         p = data['passed']
         t = data['total']
         rate = f"{100*p//t}%" if t > 0 else "N/A"
-        print(f"  {name}: {p}/{t} ✅ ({rate})")
+        logger.info(f"  {name}: {p}/{t} ✅ ({rate})")
 
     return all_reports
 

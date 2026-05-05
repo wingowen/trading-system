@@ -6,7 +6,18 @@
 - 需用户审核或自动应用
 """
 
+import os
+from pathlib import Path
+from datetime import datetime
 from typing import Any, Dict, List
+import logging
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 class AdaptiveStrategyTuner:
@@ -107,16 +118,21 @@ class AdaptiveStrategyTuner:
             "auto_apply": auto_apply,
         }
 
-    def persist(self, tune_result: dict, trade_date: str = None) -> dict:
+    def persist(self, tune_result: dict, trade_date: str = None, db_path: str = None) -> dict:
         """
         将调参结果写入 SQLite。
         表: strategy_tuning_log (field_name, old_value, new_value, reason, confidence, trade_date, created_at)
         """
-        import sqlite3, json
-        from datetime import datetime
+        import sqlite3
 
-        db_path = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
         trade_date = trade_date or datetime.now().strftime("%Y-%m-%d")
+        
+        if db_path is None:
+            db_path = os.environ.get(
+                "STOCKEXPERT_DB",
+                str(Path(__file__).parent.parent.parent.parent / "data" / "stockexpert.db")
+            )
+        logger.info(f"持久化调参结果到数据库: {db_path}")
 
         try:
             conn = sqlite3.connect(db_path)
@@ -147,8 +163,10 @@ class AdaptiveStrategyTuner:
                 ))
             conn.commit()
             conn.close()
+            logger.info(f"成功持久化 {len(tune_result.get('changes', []))} 条调参记录")
             return {"status": "success", "count": len(tune_result.get("changes", []))}
         except Exception as e:
+            logger.error(f"持久化调参结果失败: {str(e)}")
             return {"status": "error", "message": str(e)}
 
     def _calculate_confidence(self, review_result: Dict) -> float:

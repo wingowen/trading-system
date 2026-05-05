@@ -2,10 +2,17 @@
 StockExpert 数据库写入层
 将各采集器数据写入 SQLite，并记录溯源日志
 """
-import sqlite3, json, datetime
+import sqlite3, json, datetime, logging
 from typing import Optional, Any
 
 from .config import DB_PATH
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 def get_conn():
@@ -57,6 +64,17 @@ class DatabaseWriter:
             records_count   INTEGER,
             error_message   TEXT,
             created_at      TEXT DEFAULT (datetime('now'))
+        )""")
+        self.conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_tuning_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            field_name   TEXT NOT NULL,
+            old_value    TEXT,
+            new_value    TEXT,
+            reason       TEXT,
+            confidence   REAL,
+            trade_date   TEXT,
+            created_at   TEXT DEFAULT (datetime('now', 'localtime'))
         )""")
         self.conn.commit()
 

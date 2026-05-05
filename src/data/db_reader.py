@@ -3,10 +3,24 @@ StockExpert 数据库读取层 — 统一 kv 结构
 所有数据存储在 data_records (kv) 和 fetch_logs两张表。
 """
 import sqlite3
+import os
+from pathlib import Path
 from datetime import date, datetime
 from typing import Optional, List, Dict, Any
+import logging
 
-DB_PATH = "/mnt/c/Users/WINGO/Documents/WorkSpace/trading-system/data/stockexpert.db"
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
+# 数据库路径配置
+DB_PATH = os.environ.get(
+    "STOCKEXPERT_DB",
+    str(Path(__file__).parent.parent.parent / "data" / "stockexpert.db")
+)
 
 
 def get_conn():
@@ -198,10 +212,10 @@ def print_dashboard(trade_date: str = None, session: str = "morning"):
     records = get_records(trade_date, session)
     cov = get_coverage(trade_date, session)
 
-    print(f"\n{'='*60}")
-    print(f"📊 StockExpert 溯源看板 — {trade_date}  {session}")
-    print(f"   覆盖率: {cov['coverage_pct']}% ({cov['success']}/{cov['total']})")
-    print(f"{'='*60}")
+    logger.info(f"\n{'='*60}")
+    logger.info(f"📊 StockExpert 溯源看板 — {trade_date}  {session}")
+    logger.info(f"   覆盖率: {cov['coverage_pct']}% ({cov['success']}/{cov['total']})")
+    logger.info(f"{'='*60}")
 
     # 按 category 分组展示
     by_cat: Dict[str, List] = {}
@@ -213,18 +227,18 @@ def print_dashboard(trade_date: str = None, session: str = "morning"):
         by_cat[cat].append({**r, "meta": meta})
 
     for cat, items in by_cat.items():
-        print(f"\n  [{cat}]")
+        logger.info(f"\n  [{cat}]")
         for it in items:
             icon = "✅" if it["status"] == "success" else "⚠️" if it["status"] == "partial" else "🔴"
             val = it["field_value"]
             unit = it["meta"].get("unit", "")
             src = it.get("source", "")
             err = f" | 🔴{it.get('error_message', '')[:40]}" if it["status"] != "success" else ""
-            print(f"    {icon} {it['meta'].get('label', it['field_name'])}: {val}{unit}  [{src}]{err}")
+            logger.info(f"    {icon} {it['meta'].get('label', it['field_name'])}: {val}{unit}  [{src}]{err}")
 
     # 采集日志摘要
     logs = get_fetch_logs(trade_date, session)
-    print(f"\n  [采集日志] {len(logs)} 条")
+    logger.info(f"\n  [采集日志] {len(logs)} 条")
     for lg in logs[-5:]:  # 只显示最近5条
         icon = "✅" if lg["status"] == "success" else "🔴"
-        print(f"    {icon} {lg['fetcher']} {lg.get('duration_ms', 0)}ms {lg.get('records_count', 0)}条")
+        logger.info(f"    {icon} {lg['fetcher']} {lg.get('duration_ms', 0)}ms {lg.get('records_count', 0)}条")

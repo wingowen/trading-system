@@ -1,8 +1,15 @@
 """
 akshare 数据采集器
 """
-import akshare as ak, pandas as pd, datetime, traceback
+import akshare as ak, pandas as pd, datetime, traceback, logging
 from typing import Optional
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 def fetch_index_quotes() -> dict:
@@ -35,8 +42,10 @@ def fetch_index_quotes() -> dict:
                     "change_pct": _float(row.get(c_chg)),
                     "source": "akshare:stock_zh_index_spot_em",
                 }
+        logger.info(f"获取指数行情，共 {len(rows)} 个指数")
         return {"indices": rows, "status": "success", "fetched_at": str(datetime.datetime.now())}
     except Exception as e:
+        logger.error(f"获取指数行情失败: {e}")
         return {"status": "failed", "error": str(e), "trace": traceback.format_exc()}
 
 
@@ -44,6 +53,7 @@ def fetch_limit_up_count() -> dict:
     """涨停家数"""
     try:
         df = ak.stock_zt_pool_strong_em(date=datetime.date.today().strftime("%Y%m%d"))
+        logger.info(f"涨停家数: {len(df)}")
         return {
             "limit_up_count": len(df),
             "source": "akshare:stock_zt_pool_strong_em",
@@ -51,6 +61,7 @@ def fetch_limit_up_count() -> dict:
             "fetched_at": str(datetime.datetime.now()),
         }
     except Exception as e:
+        logger.error(f"获取涨停家数失败: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -58,6 +69,7 @@ def fetch_limit_down_count() -> dict:
     """跌停家数"""
     try:
         df = ak.stock_zt_pool_dtgc_em(date=datetime.date.today().strftime("%Y%m%d"))
+        logger.info(f"跌停家数: {len(df)}")
         return {
             "limit_down_count": len(df),
             "source": "akshare:stock_zt_pool_dtgc_em",
@@ -65,6 +77,7 @@ def fetch_limit_down_count() -> dict:
             "fetched_at": str(datetime.datetime.now()),
         }
     except Exception as e:
+        logger.error(f"获取跌停家数失败: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -84,8 +97,10 @@ def fetch_north_flow_summary() -> dict:
                 "net_deal_amt": net,
                 "fund_inflow": fund_inflow,
             }
+        logger.info(f"获取北向资金概况，共 {len(result['rows'])} 条")
         return result
     except Exception as e:
+        logger.error(f"获取北向资金概况失败: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -108,6 +123,7 @@ def fetch_north_hist() -> dict:
             "note": "2024-08-19起全NaN，建议CDP补历史",
         }
     except Exception as e:
+        logger.error(f"获取北向历史失败: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -141,6 +157,9 @@ def fetch_strong_sectors(date: str = None, top_n: int = 5) -> dict:
     链路: stock_board_industry_name_em() → stock_board_industry_hist_em() 查近5日涨幅 → TopN
     """
     try:
+        # 计算日期范围，只获取最近 30 天数据以避免获取太多
+        today = datetime.date.today()
+        start_date = (today - datetime.timedelta(days=60)).strftime("%Y%m%d") if not date else date
         board_df = ak.stock_board_industry_name_em()
         sectors = []
         for _, row in board_df.iterrows():
@@ -149,7 +168,8 @@ def fetch_strong_sectors(date: str = None, top_n: int = 5) -> dict:
                 continue
             try:
                 hist = ak.stock_board_industry_hist_em(
-                    symbol=name, period="日", start_date=date or "", end_date=date or "", adjust="qfq"
+                    symbol=name, period="日", start_date=start_date, 
+                    end_date=date or today.strftime("%Y%m%d"), adjust="qfq"
                 )
                 if hist is not None and len(hist) >= 2:
                     # 取近5日（去掉今日最新）累计涨幅
@@ -164,8 +184,10 @@ def fetch_strong_sectors(date: str = None, top_n: int = 5) -> dict:
         # 按5日涨幅降序
         sectors.sort(key=lambda x: x["chg_5d"], reverse=True)
         top = sectors[:top_n]
+        logger.info(f"获取强势板块，共 {len(sectors)} 个板块，Top {top_n}")
         return {"status": "success", "strong_sectors": top, "all_count": len(sectors)}
     except Exception as e:
+        logger.error(f"获取强势板块失败: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -175,6 +197,10 @@ def fetch_sector_stocks(sector_name: str, top_n: int = 10) -> dict:
     链路: stock_board_industry_cons_em() → 日线涨幅排序 → TopN
     """
     try:
+        # 计算日期范围，只获取最近 30 天数据
+        today = datetime.date.today()
+        start_date = (today - datetime.timedelta(days=30)).strftime("%Y%m%d")
+        
         cons_df = ak.stock_board_industry_cons_em(symbol=sector_name)
         if cons_df is None or cons_df.empty:
             return {"status": "success", "sector": sector_name, "stocks": []}
@@ -194,7 +220,8 @@ def fetch_sector_stocks(sector_name: str, top_n: int = 10) -> dict:
             code_clean = code.replace(".SH", "").replace(".SZ", "").strip()
             try:
                 hist = ak.stock_zh_a_hist(
-                    symbol=code_clean, period="日", start_date="", end_date="", adjust="qfq"
+                    symbol=code_clean, period="日", start_date=start_date, 
+                    end_date=today.strftime("%Y%m%d"), adjust="qfq"
                 )
                 if hist is not None and len(hist) >= 2:
                     recent = hist.tail(2)
@@ -206,8 +233,10 @@ def fetch_sector_stocks(sector_name: str, top_n: int = 10) -> dict:
                 continue
 
         stocks.sort(key=lambda x: x["chg_1d"], reverse=True)
+        logger.info(f"获取板块 {sector_name} 成分股，共 {len(stocks)} 只，Top {top_n}")
         return {"status": "success", "sector": sector_name, "stocks": stocks[:top_n]}
     except Exception as e:
+        logger.error(f"获取板块 {sector_name} 成分股失败: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -217,11 +246,14 @@ def enrich_stock_metrics(code: str) -> dict:
     链路: stock_zh_a_hist() → 计算 MA 和量比
     """
     try:
-        today = datetime.date.today().strftime("%Y%m%d")
+        today = datetime.date.today()
+        start_date = (today - datetime.timedelta(days=60)).strftime("%Y%m%d")
         hist = ak.stock_zh_a_hist(
-            symbol=code, period="日", start_date="", end_date="", adjust="qfq"
+            symbol=code, period="日", start_date=start_date, 
+            end_date=today.strftime("%Y%m%d"), adjust="qfq"
         )
         if hist is None or len(hist) < 20:
+            logger.warning(f"股票 {code} 历史数据不足 20 天")
             return {"status": "partial", "code": code}
 
         df = hist.tail(30).copy()
@@ -233,6 +265,7 @@ def enrich_stock_metrics(code: str) -> dict:
         vol_ratio = round(float(vol[-1] / vol_avg5), 2) if vol_avg5 and vol_avg5 > 0 else 0
 
         latest = df.iloc[-1]
+        logger.info(f"计算股票 {code} 技术指标成功")
         return {
             "status": "success",
             "code": code,
@@ -243,4 +276,5 @@ def enrich_stock_metrics(code: str) -> dict:
             "vol_ratio": vol_ratio,
         }
     except Exception as e:
+        logger.error(f"计算股票 {code} 技术指标失败: {e}")
         return {"status": "failed", "error": str(e)}
